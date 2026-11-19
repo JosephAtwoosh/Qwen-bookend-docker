@@ -1,0 +1,19 @@
+# Deny all access to the data directory: the SQLite database, uploaded media,
+# thumbnails and built exports all live here.
+#
+# If this file is ignored by the host (AllowOverride None), the Health page says so
+# explicitly -- it fetches its own data URL and reports a failure if the answer is
+# 200. Do not rely on nobody finding the URL.
+
+<IfModule mod_authz_core.c>
+  Require all denied
+</IfModule>
+<IfModule !mod_authz_core.c>
+  Order allow,deny
+  Deny from all
+</IfModule>
+
+Options -Indexes
+RemoveHandler .php .phtml .php3 .php4 .php5 .php8 .phar
+RemoveType .php .phtml .php3 .php4 .php5 .php8 .phar
+php_flag engine off

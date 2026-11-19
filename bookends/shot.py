@@ -147,10 +147,14 @@ def load_shot(root: Path) -> Shot:
     plates = _images(root, "plate_")
 
     warnings: list[str] = []
-    if not refs and not plates:
+    # References may be declared outside the shot directory: the studio exports
+    # shared images into reference/ and names them in use.txt, so a shot with no
+    # local images is normal, not a mistake.
+    has_external_selection = (root / "use.txt").is_file()
+    if not refs and not plates and not has_external_selection:
         warnings.append(
-            "no ref_* or plate_* images: generation would be text-only, which Qwen-Image-Edit "
-            "will happily answer with an unrelated subject"
+            "no ref_* or plate_* images and no use.txt: generation would be text-only, and "
+            "Qwen-Image-Edit will happily answer with an unrelated subject"
         )
     if start_text.lower() == stop_text.lower():
         warnings.append("start.txt and stop.txt are identical: the shot has nothing to animate")

@@ -1,0 +1,10 @@
+# Include-only directory. Every file here exits unless QB_BOOT is defined, but
+# blocking direct requests as well removes the question entirely.
+
+<IfModule mod_authz_core.c>
+  Require all denied
+</IfModule>
+<IfModule !mod_authz_core.c>
+  Order allow,deny
+  Deny from all
+</IfModule>

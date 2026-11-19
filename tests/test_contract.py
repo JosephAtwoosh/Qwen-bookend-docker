@@ -32,6 +32,14 @@ def test_extract_then_load(shot_factory, tar_factory, tmp_path):
     assert shot.warnings == []
 
 
+def test_use_txt_counts_as_references(shot_factory):
+    """The studio exports shared images into reference/ and names them in use.txt."""
+    shot_dir = shot_factory("shot_006", refs=0, plates=0)
+    (shot_dir / "use.txt").write_text("toby_front.png\n", encoding="utf-8")
+    shot = load_shot(shot_dir)
+    assert shot.warnings == []
+
+
 def test_missing_required_file_is_named(shot_factory):
     shot_dir = shot_factory("shot_002")
     (shot_dir / "stop.txt").unlink()

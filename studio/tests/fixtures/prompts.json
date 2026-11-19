@@ -1,0 +1,114 @@
+{
+  "generated_by": "tools/make_prompt_fixtures.py",
+  "cases": [
+    {
+      "name": "two refs, no style",
+      "body": "She stands at the gate in the morning sun.",
+      "labels": [
+        "the character Toby, front view",
+        "the garden with the coop, nobody present"
+      ],
+      "style": null,
+      "expected_prompt": "Image 1 shows the character Toby, front view. Image 2 shows the garden with the coop, nobody present. She stands at the gate in the morning sun. Keep the subject's proportions, colours and design exactly as in the reference images. No text, lettering, captions, watermarks or speech bubbles anywhere in the picture.",
+      "expected_notes": []
+    },
+    {
+      "name": "built-in style",
+      "body": "She has turned to face the coop, looking down.",
+      "labels": [
+        "a small brown terrier with a red collar, front view"
+      ],
+      "style": "clay",
+      "expected_prompt": "Image 1 shows a small brown terrier with a red collar, front view. She has turned to face the coop, looking down. stop-motion claymation look, handcrafted plasticine texture with faint fingerprints, miniature set lighting, shallow depth of field. Keep the subject's proportions, colours and design exactly as in the reference images. No text, lettering, captions, watermarks or speech bubbles anywhere in the picture.",
+      "expected_notes": []
+    },
+    {
+      "name": "free-text style",
+      "body": "He raises the lantern.",
+      "labels": [
+        "the character Toby",
+        "the lantern prop"
+      ],
+      "style": "grainy 1970s Super 8",
+      "expected_prompt": "Image 1 shows the character Toby. Image 2 shows the lantern prop. He raises the lantern. grainy 1970s Super 8. Keep the subject's proportions, colours and design exactly as in the reference images. No text, lettering, captions, watermarks or speech bubbles anywhere in the picture.",
+      "expected_notes": []
+    },
+    {
+      "name": "no images",
+      "body": "A wide shot of the empty field at dusk.",
+      "labels": [],
+      "style": null,
+      "expected_prompt": "A wide shot of the empty field at dusk. Keep the subject's proportions, colours and design exactly as in the reference images. No text, lettering, captions, watermarks or speech bubbles anywhere in the picture.",
+      "expected_notes": [
+        "no reference images: this is a text-only generation"
+      ]
+    },
+    {
+      "name": "over budget",
+      "body": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word",
+      "labels": [
+        "the subject"
+      ],
+      "style": "pixar",
+      "expected_prompt": "Image 1 shows the subject. word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word 3D Pixar-style animated film look, expressive subsurface-lit materials, soft cinematic depth of field, cinematic key light. Keep the subject's proportions, colours and design exactly as in the reference images. No text, lettering, captions, watermarks or speech bubbles anywhere in the picture.",
+      "expected_notes": [
+        "shot text is 140 words, over the 120-word budget; the model spreads attention across boilerplate when a prompt is long"
+      ]
+    },
+    {
+      "name": "quotes and negation",
+      "body": "He says \"good morning\" quietly, and no hens are visible.",
+      "labels": [
+        "the subject"
+      ],
+      "style": null,
+      "expected_prompt": "Image 1 shows the subject. He says \"good morning\" quietly, and no hens are visible. Keep the subject's proportions, colours and design exactly as in the reference images. No text, lettering, captions, watermarks or speech bubbles anywhere in the picture.",
+      "expected_notes": [
+        "shot text contains quotation marks; if this is dialogue it will be lettered into the frame. Describe what is seen and heard, not what is said.",
+        "shot text contains a negation; prefer explaining the absence ('the white hen is inside the coop') over forbidding it ('no hens')"
+      ]
+    },
+    {
+      "name": "stop frame appended",
+      "body": "She has turned away.",
+      "labels": [
+        "the character Toby, front view",
+        "frame 0 of this shot, already approved and rendered"
+      ],
+      "style": "noir",
+      "expected_prompt": "Image 1 shows the character Toby, front view. Image 2 shows frame 0 of this shot, already approved and rendered. She has turned away. 1940s black-and-white film noir still, high-contrast chiaroscuro lighting, 35mm film grain. Keep the subject's proportions, colours and design exactly as in the reference images. No text, lettering, captions, watermarks or speech bubbles anywhere in the picture.",
+      "expected_notes": []
+    }
+  ],
+  "default_labels": [
+    {
+      "file": "ref_char_front_view.png",
+      "expected": "the char front view reference"
+    },
+    {
+      "file": "ref_3.png",
+      "expected": "reference image 1"
+    },
+    {
+      "file": "plate_set.png",
+      "expected": "the empty background plate for this set, with nobody in frame"
+    }
+  ],
+  "describe": {
+    "labels": [
+      "the character Toby, front view",
+      "the garden, nobody present"
+    ],
+    "expected": "Image 1 shows the character Toby, front view. Image 2 shows the garden, nobody present."
+  },
+  "styles": {
+    "pixar": "3D Pixar-style animated film look, expressive subsurface-lit materials, soft cinematic depth of field, cinematic key light",
+    "clay": "stop-motion claymation look, handcrafted plasticine texture with faint fingerprints, miniature set lighting, shallow depth of field",
+    "cartoon": "2D modern cel-shaded cartoon illustration, bold clean linework, flat shading with a rim light",
+    "anime": "theatrical anime key visual, crisp line art, cel-shaded lighting, rich colour grading",
+    "noir": "1940s black-and-white film noir still, high-contrast chiaroscuro lighting, 35mm film grain",
+    "realistic": "photorealistic live-action film still, 35mm anamorphic lens, natural skin and material texture, cinematic lighting"
+  },
+  "plate_label": "the empty background plate for this set, with nobody in frame",
+  "start_frame_label": "frame 0 of this shot, already approved and rendered"
+}

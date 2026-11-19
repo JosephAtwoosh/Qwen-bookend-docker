@@ -7,6 +7,12 @@ reference/
 # but its structure is documented in docs/SHOT-CONTRACT.md. Keep refs.json
 # under version control in the project repo, not here.
 
+# --- studio runtime state -----------------------------------------------------
+# SQLite, uploads, thumbnails and exports. The directory-level .htaccess that
+# protects them IS committed, so it survives a deploy.
+studio/data/*
+!studio/data/.htaccess
+
 # --- python -------------------------------------------------------------------
 __pycache__/
 *.py[cod]

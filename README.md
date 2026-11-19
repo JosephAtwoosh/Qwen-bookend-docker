@@ -95,6 +95,23 @@ shots/work/shot_007/use.txt  per shot, wins; '-' excludes an inherited file
 | `refs` | list the reference pool, show each shot's selection, write/verify `manifest.sha256` | no |
 | `doctor` | measured VRAM/RAM, chosen profile, worker count, weight cache, reference drift | no |
 
+## The studio (authoring UI)
+
+The CLI assumes the shot tarballs already exist. [`studio/`](studio/README.md) is a
+PHP + SQLite app that authors them: characters, props and sets with reference
+images, shots with start/stop/motion text and audio, a live preview of the exact
+prompt the model will get, bookend review, and a one-click export of the payload
+this repo expects.
+
+It is PHP rather than Python so it can be uploaded to ordinary Apache hosting, and
+it reimplements prompt composition in PHP for the live preview. That duplication is
+pinned by fixtures generated from `bookends/prompt.py`, checked in CI — the two
+cannot drift apart without a red build.
+
+```bash
+php -S 127.0.0.1:8765 -t studio      # PHP 8.1+ with pdo_sqlite and gd
+```
+
 ## Determinism, so a re-roll is a decision
 
 Seeds are derived, not random: `sha256(seed_base:shot:tag)`. The same shot always produces the same
