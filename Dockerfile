@@ -25,14 +25,19 @@ RUN apt-get update \
 # QwenImageEditPlusPipeline (multi-image editing) lives in diffusers; the model card
 # says install from git. Pin with --build-arg DIFFUSERS_REF=<sha> once a working
 # revision is known -- "main" is a moving target and this is recorded as a risk.
+#
+# transformers has no upper bound on purpose: diffusers@main tracks a recent
+# transformers, and capping it at <5 made the resolver give up (ResolutionImpossible).
+# Let diffusers choose, then record what it chose so the image is explainable.
 RUN pip install --no-cache-dir --upgrade pip \
  && pip install --no-cache-dir \
       "diffusers @ git+https://github.com/huggingface/diffusers@${DIFFUSERS_REF}" \
-      "transformers>=4.49,<5" \
+      "transformers>=4.49" \
       "accelerate>=1.0" \
       "safetensors>=0.4" \
       "pillow>=10" \
-      "numpy>=1.24"
+      "numpy>=1.24" \
+ && python -c "import diffusers, transformers, torch; print('resolved', 'diffusers', diffusers.__version__, '| transformers', transformers.__version__, '| torch', torch.__version__)" | tee /usr/local/share/bookends-versions.txt
 
 # torchao provides float8 weight-only quantisation. --no-deps is deliberate: torchao
 # depends on torch, and letting pip resolve it would replace the CUDA 12.6 build
