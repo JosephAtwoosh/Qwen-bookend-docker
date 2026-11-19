@@ -1,0 +1,27 @@
+# --- large / local-only -------------------------------------------------------
+models/
+shots/
+output/
+reference/
+# reference/ is where project renders live; it is gitignored on purpose,
+# but its structure is documented in docs/SHOT-CONTRACT.md. Keep refs.json
+# under version control in the project repo, not here.
+
+# --- python -------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.test-tmp/
+.venv/
+venv/
+
+# --- secrets / env ------------------------------------------------------------
+.env
+*.token
+
+# --- os -----------------------------------------------------------------------
+.DS_Store
+Thumbs.db

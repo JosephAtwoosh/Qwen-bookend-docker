@@ -1,0 +1,40 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      # The suite is CPU-only by design: prep, task resolution, skipping, metrics,
+      # review pack and handoff all run against a synthetic engine, so a GPU is
+      # never required to verify the plumbing.
+      - run: pip install -e ".[dev]"
+      - run: python -m pytest -q
+
+  no-gpu-import-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -e .
+      # The whole point of the task/worker split is that torch is imported only
+      # inside bookends.pipe. Enforce that instead of trusting it.
+      - name: CLI imports without torch
+        run: |
+          python -c "import bookends.__main__, bookends.tasks, bookends.review, bookends.pack; print('ok')"
+          python -m bookends --version

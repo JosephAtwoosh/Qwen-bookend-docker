@@ -1,0 +1,34 @@
+# Mirrors the ltx25-docker layout on purpose: same mount points, same one-shot
+# `docker compose run --rm` ergonomics, so moving between the two repos on a rented
+# box is muscle memory rather than a re-read of the docs.
+services:
+  qwen:
+    build:
+      context: .
+      args:
+        DIFFUSERS_REF: ${DIFFUSERS_REF:-main}
+    image: qwen-bookend-docker:${TAG:-latest}
+    env_file:
+      - .env
+    environment:
+      SHOTS_DIR: /shots
+      REFERENCE_DIR: /reference
+      OUTPUT_DIR: /output
+      MODELS_DIR: /models
+    volumes:
+      - ${MODELS_HOST_DIR:-./models}:/models
+      # Read-only: references are inputs. Nothing here should ever be rewritten.
+      - ${REFERENCE_HOST_DIR:-./reference}:/reference:ro
+      - ${SHOTS_HOST_DIR:-./shots}:/shots
+      - ${OUTPUT_HOST_DIR:-./output}:/output
+    working_dir: /shots
+    # Qwen's text encoder is loaded on the CPU; 16 GB of shared memory avoids the
+    # default 64 MB /dev/shm limit biting during model load.
+    shm_size: "16gb"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

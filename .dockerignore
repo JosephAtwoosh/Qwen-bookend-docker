@@ -1,0 +1,14 @@
+.git
+.github
+models
+shots
+output
+reference
+tests
+.test-tmp
+**/__pycache__
+**/*.pyc
+.pytest_cache
+.env
+*.md
+!README.md
