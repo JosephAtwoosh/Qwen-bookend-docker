@@ -492,6 +492,36 @@ function view_exports(array $exportsList): string
         . $list . '</tbody></table>';
 }
 
+/* ------------------------------------------------------- erase (TESTING ONLY) */
+
+function view_erase(array $stats): string
+{
+    $rows = '';
+    foreach ([
+        'projects' => 'Projects',
+        'assets' => 'Characters, props and sets',
+        'images' => 'Reference images (database rows)',
+        'shots' => 'Shots',
+        'bookends' => 'Uploaded start/stop frames',
+        'media_files' => 'Files on disk (uploads, thumbnails)',
+        'exports' => 'Built exports',
+    ] as $key => $label) {
+        $value = $key === 'media_files'
+            ? (int) $stats[$key] . ' (' . human_bytes((int) $stats['media_bytes']) . ')'
+            : (string) (int) $stats[$key];
+        $rows .= '<tr><td>' . e($label) . '</td><td><strong>' . e($value) . '</strong></td></tr>';
+    }
+
+    return '<p class="sub">Everything below is deleted permanently. There is no undo and no backup '
+        . 'taken by the app. The directory guards and this page stay; the database is emptied.</p>'
+        . '<table class="grid">' . $rows . '</table>'
+        . '<form method="post" action="' . e(url('erase.confirm')) . '" class="card danger">' . csrf_field()
+        . '<label>Type <code>ERASE</code> to confirm<input name="confirm" value="" autocomplete="off" required></label>'
+        . '<label class="inline-check"><input type="checkbox" name="keep_password" value="1" checked> '
+        . 'Keep my password (otherwise you are signed out and the setup screen returns)</label>'
+        . '<button class="warn">Erase everything</button></form>';
+}
+
 /* ------------------------------------------------------------------ settings */
 
 function view_settings(array $checks, string $width, string $height): string
@@ -515,7 +545,13 @@ function view_settings(array $checks, string $width, string $height): string
         . '<div class="row"><label>Preview width<input name="preview_width" value="' . e($width) . '"></label>'
         . '<label>Preview height<input name="preview_height" value="' . e($height) . '"></label></div>'
         . '<p class="muted small">Only used to show sizes in the preview; the project size is what is exported.</p>'
-        . '<button>Save</button></form>';
+        . '<button>Save</button></form>'
+        // TESTING ONLY: delete this block to remove the erase feature.
+        . '<h2>Danger zone</h2>'
+        . '<div class="card danger"><p><strong>Erase everything.</strong> Removes every project, '
+        . 'reference image, shot, uploaded frame and export. Built for testing this app from a clean '
+        . 'slate; it does not take a backup.</p>'
+        . '<a class="btn" href="' . e(url('erase')) . '">Erase everything&hellip;</a></div>';
 }
 
 /* -------------------------------------------------------------------- health */

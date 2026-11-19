@@ -107,10 +107,20 @@ automatically), then the Review screen shows each pair side by side with SSIM,
 mean absolute difference and hue distance, and the same `pass` / `stalled` /
 `drift` verdicts the CLI uses. The CLI is authoritative; this is a pre-screen.
 
+## Erase everything (testing aid)
+
+Settings → **Danger zone** → *Erase everything*. It deletes every project, asset,
+reference image, shot, uploaded bookend frame and export — and, if you untick the
+box, the password too, returning the app to its setup screen.
+
+It is deliberately easy to remove once it has served its purpose: `src/erase.php`
+lists the five places to delete in its header comment (this file, the require, the
+two route cases, the view function and the Settings card).
+
 ## Tests
 
 ```bash
-php studio/tests/run.php        # 67 checks: schema, prompt conformance, tar, export, GD, metrics
+php studio/tests/run.php        # 84 checks: schema, prompt conformance, tar, export, GD, metrics, erase
 node tools/studio-smoke.mjs http://127.0.0.1:8765 .test-tmp/studio-smoke   # live HTTP walk-through
 ```
 

@@ -17,6 +17,7 @@ require __DIR__ . '/src/images.php';
 require __DIR__ . '/src/review.php';
 require __DIR__ . '/src/export.php';
 require __DIR__ . '/src/health.php';
+require __DIR__ . '/src/erase.php'; // TESTING ONLY -- see src/erase.php
 require __DIR__ . '/src/views.php';
 
 session_start_safe();
@@ -501,7 +502,42 @@ switch ($route) {
         readfile($path);
         break;
 
-    /* ---------------------------------------------------------------- settings */
+    /* ---------------------------------------------------- erase (TESTING ONLY) */
+
+    case 'erase':
+        echo view_layout(
+            'Erase everything',
+            view_erase(erase_stats()),
+            ['sub' => 'Testing aid: clears all projects, references, shots and exports.']
+        );
+        break;
+
+    case 'erase.confirm':
+        if (strtoupper(trim(posted('confirm'))) !== 'ERASE') {
+            flash('Type ERASE to confirm. Nothing was deleted.', 'warnbadge');
+            redirect(url('erase'));
+        }
+        $keepPassword = isset($_POST['keep_password']);
+        $result = erase_all($keepPassword);
+        $b = $result['before'];
+        flash(sprintf(
+            'Erased %d project(s), %d asset(s), %d shot(s), %d file(s) (%s).',
+            $b['projects'],
+            $b['assets'],
+            $b['shots'],
+            $result['removed_files'],
+            human_bytes($result['removed_bytes'])
+        ));
+        if ($keepPassword) {
+            redirect(url());
+        }
+        // Password gone: start a fresh session so the setup screen appears.
+        $_SESSION = [];
+        session_destroy();
+        redirect(url());
+        break;
+
+    /* ------------------------------------------------------------------ settings */
 
     case 'settings':
         $checks = array_map(static fn (array $c): array => [

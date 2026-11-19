@@ -253,6 +253,39 @@ imagepng($im, $dark);
 $m2 = rv_compare($sameA, $dark);
 check('very different pair is drift', $m2['verdict'] === 'drift', $m2['verdict']);
 
+/* --------------------------------------------------------- erase (testing aid) */
+echo "\nerase (testing only)\n";
+require __DIR__ . '/../src/erase.php';
+
+set_setting('password_hash', password_hash('erase-test-password', PASSWORD_DEFAULT));
+check('password present before the wipe', has_password());
+
+// A directory guard that the wipe must not touch.
+file_put_contents(QB_MEDIA . '/.htaccess', "guarded\n");
+
+$stats = erase_stats();
+check('stats see the seeded project', (int) $stats['projects'] >= 1, json_encode($stats));
+check('stats see media files', (int) $stats['media_files'] >= 1, json_encode($stats));
+
+$result = erase_all(true);
+check('projects gone', (int) db()->query('SELECT COUNT(*) FROM projects')->fetchColumn() === 0);
+check('assets gone', (int) db()->query('SELECT COUNT(*) FROM assets')->fetchColumn() === 0);
+check('images gone', (int) db()->query('SELECT COUNT(*) FROM images')->fetchColumn() === 0);
+check('shots gone', (int) db()->query('SELECT COUNT(*) FROM shots')->fetchColumn() === 0);
+check('bookends gone', (int) db()->query('SELECT COUNT(*) FROM bookends')->fetchColumn() === 0);
+check('media directory emptied', erase_count_files(QB_MEDIA) === 0);
+check('thumbs directory emptied', erase_count_files(QB_THUMBS) === 0);
+check('exports directory emptied', count(glob(QB_EXPORTS . '/*', GLOB_ONLYDIR) ?: []) === 0);
+check('.htaccess guard survives', is_file(QB_MEDIA . '/.htaccess'));
+check('password kept by default', has_password());
+check('removed files counted', (int) $result['removed_files'] >= 1, json_encode($result['removed_files']));
+
+project_create('Second life');
+$reset = erase_all(false);
+check('factory reset drops the password', !has_password());
+check('factory reset drops the project', (int) db()->query('SELECT COUNT(*) FROM projects')->fetchColumn() === 0);
+check('factory reset reports it kept no password', $reset['password_kept'] === false);
+
 /* ----------------------------------------------------------------- teardown */
 echo "\n";
 echo $failures === 0

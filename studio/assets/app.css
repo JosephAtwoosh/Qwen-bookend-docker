@@ -55,6 +55,8 @@ label input, label textarea, label select {
   font: inherit; font-weight: 400; color: var(--ink);
   background: #fff; border: 1px solid var(--line); border-radius: 7px;
 }
+label.inline-check { display: flex; align-items: center; gap: 8px; font-weight: 400; }
+label.inline-check input { width: auto; margin: 0; }
 textarea { resize: vertical; }
 .row { display: flex; gap: 12px; flex-wrap: wrap; }
 .row > label { flex: 1 1 160px; margin-bottom: 8px; }

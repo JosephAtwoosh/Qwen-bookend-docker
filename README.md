@@ -143,7 +143,7 @@ second GPU stays idle, and `WORKERS=0` says so instead of quietly running one wo
 
 | Area | State |
 |---|---|
-| Shot contract, tarball safety, prompt composition | tested (`pytest`, 67 tests, CPU only) |
+| Shot contract, tarball safety, prompt composition | tested (`pytest`, 69 tests, CPU only) |
 | Reference selection + `manifest.sha256` drift detection | tested |
 | Sequential pair contract (stop consumes its rendered start) | tested, including the fresh-batch case |
 | Task resolution, seed derivation, skip/re-roll | tested |
@@ -171,7 +171,7 @@ bookends/            the package (torch imported only inside pipe.py)
 ├── pack.py          ltx_ready bundles
 └── doctor.py        environment reportdocs/                shot contract, hardware numbers, handoff
 scripts/             run.sh, entrypoint.sh, download.sh, bench.sh
-tests/               56 tests; no GPU, no torch
+tests/               69 tests; no GPU, no torch
 ```
 
 ## Developing without a GPU
