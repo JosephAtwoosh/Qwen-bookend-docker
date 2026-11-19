@@ -41,14 +41,70 @@ so nobody hand-writes slot boilerplate per shot. Prompts over `MAX_PROMPT_WORDS`
 flagged too, because take 2's 505-word prompts with 15.5 negations each were the
 documented cause of species-blending and lettered dialogue.
 
+## The pair contract
+
+Two generations per shot, in this order:
+
+```
+start.jpg  =  <selected references>  +  start.txt                    ->  Qwen-Image-Edit
+stop.jpg   =  <selected references>  +  stop.txt  +  start.jpg       ->  Qwen-Image-Edit
+```
+
+`start.jpg` is appended **last** in the stop's image list, so the slot numbering of
+the references never shifts, and it is labelled
+`"frame 0 of this shot, already approved and rendered"`.
+
+This is why `batch` runs in two phases in `sequential` mode: it renders every
+start, then resolves the stops again — because a stop cannot be planned before its
+own frame 0 exists on disk. `--pair-mode independent` drops the `start.jpg` input
+(and the two-phase ordering) for shots where the camera moves too far between
+frames for one to guide the other.
+
 ## References
 
-Two sources, merged in a fixed order so `Image N` numbering is stable:
+Three sources, in this order, so `Image N` numbering is stable and visible in
+`bookends prep`:
 
-1. `reference/*.png` — project-wide (Tripo character sheets, prop sheets, plates)
-2. `shot/ref_*.png` — this shot only
-3. `shot/plate_*.png` — the set with nobody in it
+1. selected project references from `reference/` — see *Selecting references*
+2. `shot/ref_*.png` — this shot only (always included)
+3. `shot/plate_*.png` — the set with nobody in it (always included)
 4. `start.jpg` — added last, and only for the *stop* task in `sequential` mode
+
+## Selecting references
+
+Qwen-Image-Edit is trained for multi-image editing with 1–3 inputs; more than that
+degrades quality rather than adding information. So references are selected, not
+dumped:
+
+```
+reference/default.txt          project-wide default, one filename per line
+shots/work/shot_007/use.txt    per shot, wins over default.txt
+```
+
+```
+# the cast and the set, in slot order
+char_front.png
+plate_garden.png
+-ref_crowd.png                 # a leading '-' excludes a default-included file
+```
+
+Names resolve against the shot directory first, then `reference/`, so a shot can
+shadow a shared file. If neither file exists, at most 3 project references are used
+and `prep` says so — an implicit choice is reported rather than hidden.
+
+`bookends refs --list` shows what is available with labels and hashes;
+`bookends refs --per-shot` prints exactly which images each shot will send.
+
+### Drift
+
+`bookends refs --write-manifest` hashes every file in `reference/` (including
+`refs.json`, because labels are an input to every prompt) into
+`reference/manifest.sha256`. `bookends refs --verify` — and `doctor` — report
+missing, changed and unlisted files.
+
+That matters because a changed reference invalidates every bookend already
+approved against it: the sidecars record each input's sha256, so the drift is
+provable, but only if you check.
 
 ### refs.json
 
@@ -87,5 +143,7 @@ Place the character from Image 1 in the garden from Image 3, ...
 | an empty required file | same: an empty prompt is a bug, not an empty shot |
 | no `ref_*` and no `plate_*` | warning: this would be text-only generation |
 | `start.txt` == `stop.txt` | warning: the shot has nothing to animate |
+| `use.txt` names a file that does not exist | error naming it and listing what is available, exit 2, before any GPU work |
+| `reference/` has no `manifest.sha256` | warning from `doctor` and `refs --verify` |
 | tarball escape attempt | `ShotError`, nothing extracted |
 | output size off the 64 grid | configuration error, exit 2, before any GPU work |

@@ -45,9 +45,10 @@ prep ──► batch ──► pull review pack ──► review ──► delet
 cp .env.example .env
 ./scripts/run.sh build
 ./scripts/run.sh download            # ~58 GB, cache it on a persistent volume
-./scripts/run.sh doctor              # what this box can do, and why
 
 # put shot tarballs in ./shots/in/, project references in ./reference/
+./scripts/run.sh refs --write-manifest   # hash the references once per project
+./scripts/run.sh doctor              # what this box can do, and why
 ./scripts/run.sh prep                # resolves tasks and prints the plan; no GPU work
 ./scripts/run.sh batch               # renders only what is missing
 ./scripts/run.sh check               # metrics + review/index.html + thumbs
@@ -61,7 +62,28 @@ rm shots/work/shot_007/stop.jpg    # and/or edit shots/work/shot_007/stop.txt
 ./scripts/run.sh batch             # regenerates stop.jpg only
 ```
 
-## The five commands
+## The pair contract
+
+Two generations per shot, in this order — this is the whole reason the repo exists:
+
+```
+start.jpg  =  <selected references>  +  start.txt                 -> Qwen-Image-Edit
+stop.jpg   =  <selected references>  +  stop.txt  +  start.jpg    -> Qwen-Image-Edit
+```
+
+`batch` therefore runs in two phases in `sequential` mode: render every start, then
+**re-resolve** the stops, because a stop cannot be planned before its own frame 0
+exists. `start.jpg` is appended last in the image list so the `Image N` numbering of
+the references never shifts.
+
+References are *selected*, not dumped — the model is trained for 1–3 inputs:
+
+```
+reference/default.txt        project-wide, one filename per line
+shots/work/shot_007/use.txt  per shot, wins; '-' excludes an inherited file
+```
+
+## The commands
 
 | Command | Does | GPU |
 |---|---|---|
@@ -70,7 +92,8 @@ rm shots/work/shot_007/stop.jpg    # and/or edit shots/work/shot_007/stop.txt
 | `check` | SSIM / mean-abs-diff / hue distance per pair, verdicts, review pack | no |
 | `style-pack` | style x reference sweep -> reusable `style_bank.tar.gz` | yes |
 | `pack` | `ltx_ready/` archives + manifest, and a render script once flags are verified | no |
-| `doctor` | measured VRAM/RAM, chosen profile, worker count, weight cache | no |
+| `refs` | list the reference pool, show each shot's selection, write/verify `manifest.sha256` | no |
+| `doctor` | measured VRAM/RAM, chosen profile, worker count, weight cache, reference drift | no |
 
 ## Determinism, so a re-roll is a decision
 
@@ -103,7 +126,9 @@ second GPU stays idle, and `WORKERS=0` says so instead of quietly running one wo
 
 | Area | State |
 |---|---|
-| Shot contract, tarball safety, prompt composition | tested (`pytest`, 56 tests, CPU only) |
+| Shot contract, tarball safety, prompt composition | tested (`pytest`, 67 tests, CPU only) |
+| Reference selection + `manifest.sha256` drift detection | tested |
+| Sequential pair contract (stop consumes its rendered start) | tested, including the fresh-batch case |
 | Task resolution, seed derivation, skip/re-roll | tested |
 | Review metrics + review pack | tested |
 | Handoff packing + manifest | tested |
@@ -119,6 +144,7 @@ bookends/            the package (torch imported only inside pipe.py)
 ├── config.py        env/flags -> validated Config
 ├── shot.py          the shot contract; safe tarball extraction
 ├── prompt.py        prompt composition, styles, the anti-boilerplate rules
+├── refs.py          reference selection (use.txt / default.txt) + manifest drift
 ├── tasks.py         task resolution, deterministic seeds, skip logic
 ├── hardware.py      measured VRAM/RAM -> profile and worker count
 ├── pipe.py          FakeEngine (CPU) and QwenEngine (fp8/offload profiles)
@@ -126,8 +152,7 @@ bookends/            the package (torch imported only inside pipe.py)
 ├── review.py        SSIM/hue metrics, contact sheet, index.html
 ├── stylepack.py     style & prop bank
 ├── pack.py          ltx_ready bundles
-└── doctor.py        environment report
-docs/                shot contract, hardware numbers, handoff
+└── doctor.py        environment reportdocs/                shot contract, hardware numbers, handoff
 scripts/             run.sh, entrypoint.sh, download.sh, bench.sh
 tests/               56 tests; no GPU, no torch
 ```

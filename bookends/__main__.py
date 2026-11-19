@@ -17,12 +17,14 @@ import json
 import sys
 from pathlib import Path
 
-from . import __version__, hardware, review, stylepack
+from . import __version__, hardware, refs, review, stylepack
 from .config import Config, ConfigError
 from .doctor import collect as doctor_collect
 from .doctor import format_text as doctor_text
 from .pack import pack as pack_shots
 from .pipe import s_per_image
+from .prompt import load_labels
+from .refs import SelectionError
 from .shot import ShotError, discover_shots, discover_tarballs, extract_shot, load_shot
 from .tasks import pending, render_order, resolve, summarise, write_tasks_json
 from .worker import batch_manifest, render
@@ -91,6 +93,13 @@ def build_parser() -> argparse.ArgumentParser:
     doc = sub.add_parser("doctor", help="report what this box can do")
     _common(doc)
     doc.add_argument("--json", action="store_true", help="machine-readable output")
+
+    refs_cmd = sub.add_parser("refs", help="list references, write or verify the manifest")
+    _common(refs_cmd)
+    refs_cmd.add_argument("--list", action="store_true", help="list the reference pool")
+    refs_cmd.add_argument("--per-shot", dest="per_shot", action="store_true", help="show what each shot selects")
+    refs_cmd.add_argument("--write-manifest", dest="write_manifest", action="store_true")
+    refs_cmd.add_argument("--verify", action="store_true")
     return p
 
 
@@ -161,17 +170,46 @@ def cmd_batch(cfg: Config, args) -> int:
         print(f"no shots found: put tarballs in {cfg.in_dir}")
         return 1
 
-    tasks, notes = resolve(cfg, shots)
-    order = render_order(tasks, cfg.pair_mode)
-    todo = pending(order, args.force)
-    if args.limit:
-        todo = todo[: args.limit]
+    remaining = args.limit
+
+    def take(items: list) -> list:
+        nonlocal remaining
+        if remaining is None:
+            return items
+        taken = items[: max(0, remaining)]
+        remaining -= len(taken)
+        return taken
+
+    # The stop contract is [selected references, stop.txt, start.jpg]. start.jpg is
+    # frame 0 of this very shot, so a stop cannot be planned before its start has
+    # been rendered: in sequential mode we resolve, render the starts, then resolve
+    # again so the stops pick the new frame up.
+    try:
+        tasks, notes = resolve(cfg, shots)
+    except SelectionError as exc:
+        print(f"reference selection error: {exc}", file=sys.stderr)
+        return 2
+
+    sequential = cfg.pair_mode == "sequential"
+    if sequential:
+        starts = pending([t for t in tasks if t.tag == "start"], args.force)
+        stops_planned = pending([t for t in tasks if t.tag == "stop"], args.force)
+    else:
+        starts = pending(render_order(tasks, cfg.pair_mode), args.force)
+        stops_planned = []
 
     for note in notes:
         print(f"  ! {note}")
-    print(f"{len(tasks)} tasks resolved, {len(todo)} to render ({len(tasks) - len(todo)} already on disk)")
 
-    if not todo:
+    pending_total = len(starts) + len(stops_planned)
+    print(
+        f"{len(tasks)} tasks resolved, {pending_total} to render "
+        f"({len(tasks) - pending_total} already on disk)"
+    )
+    if args.limit is not None and args.limit < pending_total:
+        print(f"  limit {args.limit}: stopping after {args.limit}")
+
+    if not pending_total:
         print("nothing to do")
         return 0
 
@@ -184,10 +222,37 @@ def cmd_batch(cfg: Config, args) -> int:
         print(f"  - {reason}")
 
     if args.dry_run:
-        _print_tasks(todo)
+        if sequential:
+            print("\nphase start")
+            _print_tasks(take(starts))
+            print("\nphase stop  (resolved after the starts exist; each will also consume start.jpg)")
+            _print_tasks(take(stops_planned))
+        else:
+            _print_tasks(take(starts))
         return 0
 
-    results = render(todo, cfg, workers=workers, fake=args.fake_pipe)
+    results: list[dict] = []
+    if sequential:
+        batch = take(starts)
+        if batch:
+            print(f"\nphase start: {len(batch)} image(s)")
+            results += render(batch, cfg, workers=workers, fake=args.fake_pipe)
+        if remaining != 0:
+            # Now that frame 0 exists for each shot, resolve again: the stop
+            # contract is [selected references, stop.txt, start.jpg].
+            second, more_notes = resolve(cfg, shots)
+            for note in more_notes:
+                print(f"  ! {note}")
+            stops = take(pending([t for t in second if t.tag == "stop"], args.force))
+            if stops:
+                print(f"\nphase stop: {len(stops)} image(s)")
+                results += render(stops, cfg, workers=workers, fake=args.fake_pipe)
+            tasks = second
+    else:
+        batch = take(starts)
+        print(f"\nphase all: {len(batch)} image(s)")
+        results += render(batch, cfg, workers=workers, fake=args.fake_pipe)
+
     manifest = batch_manifest(cfg, tasks, results, hw=hw, style=cfg.style)
     out = Path(cfg.output_dir) / "manifest.json"
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -306,6 +371,58 @@ def cmd_doctor(cfg: Config, args) -> int:
     return 2 if report["errors"] else 0
 
 
+def cmd_refs(cfg: Config, args) -> int:
+    ref_dir = Path(cfg.reference_dir)
+
+    if args.write_manifest:
+        path, count = refs.write_manifest(cfg)
+        print(f"wrote {path}  ({count} file(s) hashed)")
+
+    problems, checked = refs.verify_manifest(cfg)
+    if args.verify or problems:
+        if problems:
+            print(f"manifest: {len(problems)} problem(s)" + (f" across {checked} file(s)" if checked else ""))
+            for p in problems:
+                print(f"  x {p}")
+            if args.verify:
+                return 1
+        elif checked:
+            print(f"manifest: ok, {checked} file(s) match")
+
+    if args.list or not (args.write_manifest or args.verify or args.per_shot):
+        pool = refs.images_in(ref_dir)
+        labels = load_labels(ref_dir)
+        print(f"\n{len(pool)} image(s) in {ref_dir}")
+        for p in pool:
+            label = labels.get(p.name, "")
+            print(
+                f"  {p.name:<32}{p.stat().st_size / 1024:8.0f} KB  "
+                f"{refs.sha256_file(p)[:12]}  {label}"
+            )
+        if pool:
+            print(
+                f"\nmodel card: 1-3 input images is where Qwen-Image-Edit is strongest "
+                f"(reference/default.txt or a shot's use.txt selects them)"
+            )
+
+    if args.per_shot:
+        shots = _load_shots(cfg, extract=False)
+        if not shots:
+            print(f"\nno extracted shots in {cfg.work_dir}")
+        for shot in shots:
+            try:
+                selection = refs.select(cfg, shot)
+            except SelectionError as exc:
+                print(f"  {shot.name}: ERROR {exc}")
+                continue
+            print(f"\n{shot.name}: {len(selection.images)} image(s)")
+            for i, p in enumerate(selection.images, start=1):
+                print(f"  Image {i}: {p.name}")
+            for note in selection.notes:
+                print(f"  ! {note}")
+    return 0
+
+
 COMMANDS = {
     "prep": cmd_prep,
     "batch": cmd_batch,
@@ -313,6 +430,7 @@ COMMANDS = {
     "style-pack": cmd_style_pack,
     "pack": cmd_pack,
     "doctor": cmd_doctor,
+    "refs": cmd_refs,
 }
 
 
@@ -328,6 +446,9 @@ def main(argv: list[str] | None = None) -> int:
         return COMMANDS[args.cmd](cfg, args)
     except ConfigError as exc:
         print(f"configuration error: {exc}", file=sys.stderr)
+        return 2
+    except SelectionError as exc:
+        print(f"reference selection error: {exc}", file=sys.stderr)
         return 2
     except KeyboardInterrupt:
         print("interrupted", file=sys.stderr)

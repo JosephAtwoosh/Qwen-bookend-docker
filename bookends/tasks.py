@@ -12,7 +12,8 @@ from dataclasses import dataclass, field, asdict
 from pathlib import Path
 
 from .config import Config
-from .prompt import START_FRAME_LABEL, compose, load_labels
+from .prompt import START_FRAME_LABEL, compose
+from .refs import select
 from .shot import IMAGE_EXTS, Shot
 
 TAGS = ("start", "stop")
@@ -64,23 +65,27 @@ def global_references(cfg: Config) -> list[Path]:
 
 
 def resolve(cfg: Config, shots: list[Shot]) -> tuple[list[Task], list[str]]:
-    """Build every start/stop task for the given shots."""
+    """Build every start/stop task for the given shots.
+
+    Image order per task is: selected references, then start.jpg for a stop task in
+    `sequential` mode. The stop task only picks up start.jpg if it is already on
+    disk, which is why `batch` resolves again between its two phases -- see
+    `bookends.__main__.cmd_batch`.
+    """
     refs = global_references(cfg)
-    ref_labels = load_labels(cfg.reference_dir)
     tasks: list[Task] = []
     notes: list[str] = []
 
     if not refs:
         notes.append(
-            f"no global references in {cfg.reference_dir}: every shot will rely on its own ref_* "
+            f"no project references in {cfg.reference_dir}: every shot will rely on its own ref_* "
             f"images only"
         )
 
     for shot in shots:
-        labels = dict(ref_labels)
-        labels.update(load_labels(shot.root))
-
-        base_images = refs + shot.refs + shot.plates
+        selection = select(cfg, shot)
+        labels = dict(selection.labels)
+        base_images = list(selection.images)
         for tag in TAGS:
             images = list(base_images)
             if tag == "stop" and cfg.pair_mode == "sequential":
@@ -90,8 +95,8 @@ def resolve(cfg: Config, shots: list[Shot]) -> tuple[list[Task], list[str]]:
                     labels.setdefault(start_out.name, START_FRAME_LABEL)
                 else:
                     notes.append(
-                        f"{shot.name}: pair_mode=sequential but start.jpg is absent, so stop.jpg "
-                        f"will be generated independently on this pass"
+                        f"{shot.name}: start.jpg is absent, so this stop is planned without it; "
+                        f"batch resolves stops again once the start frames have rendered"
                     )
 
             prompt, prompt_notes = compose(
@@ -109,7 +114,7 @@ def resolve(cfg: Config, shots: list[Shot]) -> tuple[list[Task], list[str]]:
                     images=images,
                     seed=derive_seed(shot.name, tag, cfg.seed_base),
                     out=shot.root / f"{tag}.jpg",
-                    notes=list(shot.warnings) + prompt_notes,
+                    notes=list(shot.warnings) + list(selection.notes) + prompt_notes,
                 )
             )
     return tasks, notes

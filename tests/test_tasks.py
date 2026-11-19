@@ -99,7 +99,7 @@ def test_no_references_is_reported(shot_factory, tmp_path):
     cfg = make_config(tmp_path)
     shot = load_shot(shot_factory("shot_001", refs=0, plates=0))
     tasks, notes = resolve(cfg, [shot])
-    assert any("no global references" in n for n in notes)
+    assert any("no project references" in n for n in notes)
     assert any("text-only" in n for t in tasks for n in t.notes)
 
 

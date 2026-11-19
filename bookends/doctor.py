@@ -12,7 +12,7 @@ import shutil
 import sys
 from pathlib import Path
 
-from . import hardware
+from . import hardware, refs
 from .config import Config
 
 
@@ -57,6 +57,14 @@ def collect(cfg: Config) -> dict:
             f"(~58 GB for Qwen-Image-Edit-2509)"
         )
 
+    # References are an input to every prompt in the project, so drift here is a
+    # silent correctness problem: previously approved bookends stop matching.
+    ref_problems, ref_checked = refs.verify_manifest(cfg)
+    for problem in ref_problems[:5]:
+        warnings.append(f"references: {problem}")
+    if len(ref_problems) > 5:
+        warnings.append(f"references: ...and {len(ref_problems) - 5} more manifest problem(s)")
+
     runtime = _runtime_versions()
     if not runtime.get("torch"):
         warnings.append("torch is not importable: this interpreter can prep/check/pack but not generate")
@@ -74,6 +82,7 @@ def collect(cfg: Config) -> dict:
         "runtime": runtime,
         "dirs": dir_status,
         "model_cache_gb": cache_gb,
+        "references": {"checked": ref_checked, "problems": ref_problems},
         "expected_weights_gb": round(
             hardware.TRANSFORMER_BF16_GB + hardware.TEXT_ENCODER_BF16_GB + hardware.VAE_GB, 1
         ),
@@ -116,6 +125,10 @@ def format_text(report: dict) -> str:
         "weights",
         f"  cache       {report['model_cache_gb']} GB under {report['config']['models_dir']}",
         f"  expected    {report['expected_weights_gb']} GB for the full checkpoint",
+        "",
+        "references",
+        f"  manifest    {report['references']['checked']} file(s) checked, "
+        f"{len(report['references']['problems'])} problem(s)",
         "",
         "runtime",
         *[f"  {k:<12}{v or 'not importable'}" for k, v in runtime.items()],

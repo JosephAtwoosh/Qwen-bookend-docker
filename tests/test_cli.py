@@ -142,6 +142,40 @@ def test_dry_run_writes_nothing(tmp_path):
     assert not (paths["shots"] / "work" / "shot_001" / "start.jpg").exists()
 
 
+def test_sequential_stop_uses_the_rendered_start(tmp_path):
+    """The contract: stop = selected references + stop.txt + start.jpg.
+
+    On a fresh batch start.jpg does not exist when the batch is planned, so the
+    stops must be resolved *after* the starts have rendered. This test fails if
+    batch regresses to planning both phases up front.
+    """
+    paths = build_batch(tmp_path, names=("shot_001",))
+    assert main(base_args(paths, "prep")) == 0
+    assert main(base_args(paths, "batch", "--fake-pipe")) == 0
+
+    work = paths["shots"] / "work" / "shot_001"
+    start_payload = json.loads((work / "start.json").read_text(encoding="utf-8"))
+    stop_payload = json.loads((work / "stop.json").read_text(encoding="utf-8"))
+
+    start_names = [Path(p["path"]).name for p in start_payload["images"]]
+    stop_names = [Path(p["path"]).name for p in stop_payload["images"]]
+    assert "start.jpg" not in start_names
+    assert stop_names[:-1] == start_names      # same references, same order
+    assert stop_names[-1] == "start.jpg"      # start appended last
+    assert "shows frame 0 of this shot" in stop_payload["prompt"]
+    # The label is numbered consistently with the slot it occupies.
+    assert f"Image {len(stop_names)} shows frame 0" in stop_payload["prompt"]
+
+
+def test_independent_mode_never_consumes_start(tmp_path):
+    paths = build_batch(tmp_path, names=("shot_001",))
+    args = base_args(paths, "batch", "--fake-pipe", "--pair-mode", "independent")
+    assert main(args) == 0
+    work = paths["shots"] / "work" / "shot_001"
+    stop_payload = json.loads((work / "stop.json").read_text(encoding="utf-8"))
+    assert not any(Path(p["path"]).name == "start.jpg" for p in stop_payload["images"])
+
+
 def test_bad_size_is_a_configuration_error(tmp_path):
     paths = build_batch(tmp_path, names=("shot_001",))
     args = base_args(paths, "prep")
