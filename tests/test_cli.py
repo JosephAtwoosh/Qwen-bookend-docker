@@ -167,6 +167,28 @@ def test_sequential_stop_uses_the_rendered_start(tmp_path):
     assert f"Image {len(stop_names)} shows frame 0" in stop_payload["prompt"]
 
 
+def test_phase_flag_splits_the_two_passes(tmp_path):
+    """`--phase start` then `--phase stop` is the same contract as one batch run.
+
+    It exists so frame 0 can be reviewed before paying for frame N-1.
+    """
+    paths = build_batch(tmp_path, names=("shot_001", "shot_002"))
+    assert main(base_args(paths, "prep")) == 0
+
+    # Stops before starts is refused, not silently downgraded to independent.
+    assert main(base_args(paths, "batch", "--fake-pipe", "--phase", "stop")) == 2
+
+    assert main(base_args(paths, "batch", "--fake-pipe", "--phase", "start")) == 0
+    work = paths["shots"] / "work" / "shot_001"
+    assert (work / "start.jpg").is_file()
+    assert not (work / "stop.jpg").exists()
+
+    assert main(base_args(paths, "batch", "--fake-pipe", "--phase", "stop")) == 0
+    assert (work / "stop.jpg").is_file()
+    payload = json.loads((work / "stop.json").read_text(encoding="utf-8"))
+    assert [Path(p["path"]).name for p in payload["images"]][-1] == "start.jpg"
+
+
 def test_independent_mode_never_consumes_start(tmp_path):
     paths = build_batch(tmp_path, names=("shot_001",))
     args = base_args(paths, "batch", "--fake-pipe", "--pair-mode", "independent")

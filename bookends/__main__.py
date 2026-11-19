@@ -65,6 +65,13 @@ def build_parser() -> argparse.ArgumentParser:
     _common(batch)
     batch.add_argument("--force", action="store_true", help="re-render even if the output exists")
     batch.add_argument("--limit", type=int, help="stop after N images (a cheap first pass)")
+    batch.add_argument(
+        "--phase",
+        choices=("all", "start", "stop"),
+        default="all",
+        help="sequential mode renders starts first, then stops that consume them; "
+        "use --phase start to review frame 0 before paying for frame N-1",
+    )
     batch.add_argument("--fake-pipe", dest="fake_pipe", action="store_true", help="synthetic images, no model")
     batch.add_argument("--dry-run", action="store_true", help="show what would run")
 
@@ -184,18 +191,46 @@ def cmd_batch(cfg: Config, args) -> int:
     # frame 0 of this very shot, so a stop cannot be planned before its start has
     # been rendered: in sequential mode we resolve, render the starts, then resolve
     # again so the stops pick the new frame up.
+    sequential = cfg.pair_mode == "sequential"
+    want_start = args.phase in ("all", "start")
+    want_stop = args.phase in ("all", "stop")
+    phase_tags = tuple(t for t, want in (("start", want_start), ("stop", want_stop)) if want)
+
     try:
-        tasks, notes = resolve(cfg, shots)
+        tasks, notes = resolve(cfg, shots, tags=phase_tags)
     except SelectionError as exc:
         print(f"reference selection error: {exc}", file=sys.stderr)
         return 2
 
-    sequential = cfg.pair_mode == "sequential"
+    # A stop is conditioned on its own shot's start.jpg, so asking for the stop
+    # phase alone when some are missing is a planning mistake, not something to
+    # paper over. With --phase all the starts are rendered first, so no check needed.
+    if args.phase == "stop" and sequential:
+        missing = [
+            t.shot
+            for t in tasks
+            if t.tag == "stop" and not (t.out.parent / "start.jpg").is_file()
+        ]
+        if missing:
+            print(
+                f"--phase stop needs start.jpg for every shot; {len(missing)} missing "
+                f"({', '.join(missing[:6])}{', ...' if len(missing) > 6 else ''}). "
+                f"Run --phase start first.",
+                file=sys.stderr,
+            )
+            return 2
+
     if sequential:
-        starts = pending([t for t in tasks if t.tag == "start"], args.force)
-        stops_planned = pending([t for t in tasks if t.tag == "stop"], args.force)
+        starts = pending([t for t in tasks if t.tag == "start"], args.force) if want_start else []
+        stops_planned = pending([t for t in tasks if t.tag == "stop"], args.force) if want_stop else []
     else:
-        starts = pending(render_order(tasks, cfg.pair_mode), args.force)
+        tags = set()
+        if want_start:
+            tags.add("start")
+        if want_stop:
+            tags.add("stop")
+        wanted = [t for t in tasks if t.tag in tags]
+        starts = pending(render_order(wanted, cfg.pair_mode), args.force)
         stops_planned = []
 
     for note in notes:
@@ -223,10 +258,12 @@ def cmd_batch(cfg: Config, args) -> int:
 
     if args.dry_run:
         if sequential:
-            print("\nphase start")
-            _print_tasks(take(starts))
-            print("\nphase stop  (resolved after the starts exist; each will also consume start.jpg)")
-            _print_tasks(take(stops_planned))
+            if starts:
+                print("\nphase start")
+                _print_tasks(take(starts))
+            if stops_planned:
+                print("\nphase stop  (resolved after the starts exist; each will also consume start.jpg)")
+                _print_tasks(take(stops_planned))
         else:
             _print_tasks(take(starts))
         return 0
@@ -237,10 +274,10 @@ def cmd_batch(cfg: Config, args) -> int:
         if batch:
             print(f"\nphase start: {len(batch)} image(s)")
             results += render(batch, cfg, workers=workers, fake=args.fake_pipe)
-        if remaining != 0:
+        if want_stop and remaining != 0:
             # Now that frame 0 exists for each shot, resolve again: the stop
             # contract is [selected references, stop.txt, start.jpg].
-            second, more_notes = resolve(cfg, shots)
+            second, more_notes = resolve(cfg, shots, tags=("stop",))
             for note in more_notes:
                 print(f"  ! {note}")
             stops = take(pending([t for t in second if t.tag == "stop"], args.force))

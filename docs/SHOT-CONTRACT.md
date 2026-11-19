@@ -60,6 +60,19 @@ own frame 0 exists on disk. `--pair-mode independent` drops the `start.jpg` inpu
 (and the two-phase ordering) for shots where the camera moves too far between
 frames for one to guide the other.
 
+One `batch` run does both passes. To review frame 0 before paying for frame N-1,
+run them separately:
+
+```bash
+bookends batch --phase start     # every start.jpg
+# review, fix prompts, delete rejects
+bookends batch --phase stop      # stops, each consuming its own start.jpg
+```
+
+`--phase stop` **refuses to run** if any shot is missing its `start.jpg`, naming
+the shots. It does not quietly fall back to generating stops without frame 0 — that
+fallback is the bug this whole section exists to prevent.
+
 ## References
 
 Three sources, in this order, so `Image N` numbering is stable and visible in

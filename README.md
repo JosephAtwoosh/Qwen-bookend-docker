@@ -88,7 +88,7 @@ shots/work/shot_007/use.txt  per shot, wins; '-' excludes an inherited file
 | Command | Does | GPU |
 |---|---|---|
 | `prep` | extract tarballs, compose prompts, derive seeds, print the plan | no |
-| `batch` | render missing images across N GPUs, write sidecars | yes |
+| `batch` | render missing images across N GPUs, write sidecars (`--phase start` / `--phase stop`) | yes |
 | `check` | SSIM / mean-abs-diff / hue distance per pair, verdicts, review pack | no |
 | `style-pack` | style x reference sweep -> reusable `style_bank.tar.gz` | yes |
 | `pack` | `ltx_ready/` archives + manifest, and a render script once flags are verified | no |

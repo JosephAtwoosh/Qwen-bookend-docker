@@ -64,8 +64,11 @@ def global_references(cfg: Config) -> list[Path]:
     return sorted(p for p in root.iterdir() if p.is_file() and p.suffix.lower() in IMAGE_EXTS)
 
 
-def resolve(cfg: Config, shots: list[Shot]) -> tuple[list[Task], list[str]]:
-    """Build every start/stop task for the given shots.
+def resolve(cfg: Config, shots: list[Shot], *, tags: tuple[str, ...] = TAGS) -> tuple[list[Task], list[str]]:
+    """Build the start and/or stop tasks for the given shots.
+
+    Pass `tags=("start",)` to plan a first pass that has not rendered its frame 0
+    yet: the stop tasks would only be planning around a file that does not exist.
 
     Image order per task is: selected references, then start.jpg for a stop task in
     `sequential` mode. The stop task only picks up start.jpg if it is already on
@@ -86,7 +89,7 @@ def resolve(cfg: Config, shots: list[Shot]) -> tuple[list[Task], list[str]]:
         selection = select(cfg, shot)
         labels = dict(selection.labels)
         base_images = list(selection.images)
-        for tag in TAGS:
+        for tag in tags:
             images = list(base_images)
             if tag == "stop" and cfg.pair_mode == "sequential":
                 start_out = shot.root / "start.jpg"
