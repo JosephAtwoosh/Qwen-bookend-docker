@@ -31,6 +31,9 @@ bookends = "bookends.__main__:main"
 [tool.setuptools.packages.find]
 include = ["bookends*"]
 
+[tool.setuptools.package-data]
+bookends = ["templates/short-film/*"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"

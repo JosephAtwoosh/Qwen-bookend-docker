@@ -17,7 +17,7 @@ import json
 import sys
 from pathlib import Path
 
-from . import __version__, hardware, refs, review, stylepack
+from . import __version__, hardware, planfile, refs, review, scaffold, stylepack
 from .config import Config, ConfigError
 from .doctor import collect as doctor_collect
 from .doctor import format_text as doctor_text
@@ -107,6 +107,19 @@ def build_parser() -> argparse.ArgumentParser:
     refs_cmd.add_argument("--per-shot", dest="per_shot", action="store_true", help="show what each shot selects")
     refs_cmd.add_argument("--write-manifest", dest="write_manifest", action="store_true")
     refs_cmd.add_argument("--verify", action="store_true")
+
+    newp = sub.add_parser("new", help="create a project folder from the shipped template")
+    newp.add_argument("path", help="directory to create")
+    newp.add_argument("--name", help="project name (defaults to the directory name)")
+    newp.add_argument("--width", type=int, default=1280)
+    newp.add_argument("--height", type=int, default=768)
+    newp.add_argument("--style", default="", help="project style key or free text")
+    newp.add_argument("--force", action="store_true", help="write into a non-empty directory")
+
+    planp = sub.add_parser("plan", help="validate a project folder")
+    planp.add_argument("path", nargs="?", default=".", help="project directory (default: .)")
+    planp.add_argument("--max-words", dest="max_words", type=int, help="prompt word budget per frame")
+    planp.add_argument("--check", action="store_true", help="validate and report (the default)")
     return p
 
 
@@ -460,7 +473,53 @@ def cmd_refs(cfg: Config, args) -> int:
     return 0
 
 
+def cmd_new(cfg: Config, args) -> int:
+    try:
+        result = scaffold.new_project(
+            args.path,
+            args.name,
+            width=args.width,
+            height=args.height,
+            style=args.style or "",
+            force=args.force,
+        )
+    except scaffold.ScaffoldError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    print(f"created {result['path']}")
+    print(f"  {result['name']}  {result['size'][0]}x{result['size'][1]}")
+    print(f"  {', '.join(result['files'])}")
+    print()
+    print("next:")
+    print(f"  1. fill cast.csv and shots.csv")
+    print(f"  2. put images in {Path(result['path']) / 'references'} as <name>_<view>.png")
+    print(f"  3. python -m bookends plan --check {result['path']}")
+    return 0
+
+
+def cmd_plan(cfg: Config, args) -> int:
+    directory = Path(args.path)
+    if not directory.is_dir():
+        print(f"error: not a directory: {directory}", file=sys.stderr)
+        return 2
+    issues = planfile.check(directory, max_words=args.max_words or cfg.max_prompt_words)
+    stats = planfile.summarise(issues)
+    for issue in issues:
+        if issue.level != "summary":
+            print(issue)
+    print()
+    print(
+        f"{stats['shots']} shots, {stats['seconds']}s, {stats['cast']} cast, "
+        f"{stats['references']} reference image(s)"
+    )
+    verdict = "ok" if stats["errors"] == 0 else f"{stats['errors']} error(s)"
+    print(f"{verdict}, {stats['warnings']} warning(s)")
+    return 2 if stats["errors"] else 0
+
+
 COMMANDS = {
+    "new": cmd_new,
+    "plan": cmd_plan,
     "prep": cmd_prep,
     "batch": cmd_batch,
     "check": cmd_check,

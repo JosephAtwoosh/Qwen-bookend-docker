@@ -1,0 +1,10 @@
+{
+  "schema": 1,
+  "name": "{{PROJECT_NAME}}",
+  "width": 1280,
+  "height": 768,
+  "fps": 24,
+  "style": "",
+  "pair_mode": "sequential",
+  "notes": "Fill in cast.csv and shots.csv, put reference images in references/, then run: bookends plan --check ."
+}

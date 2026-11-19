@@ -1,0 +1,3 @@
+shot,scene,duration_s,start_text,stop_text,motion_prompt,references
+001,1,7.0,"A girl in a red raincoat stands at a garden gate, wet path and grey stone wall behind her.","She has turned to face the gate, one hand resting on the latch.","She lifts the latch and pushes the gate open.","girl_front;gate_plate"
+002,1,6.0,"The gate stands half open into an overgrown garden, the path beyond it clear.","The gate has come to rest against a mossy wall, the garden path open ahead.","The gate swings open and settles.",gate_plate

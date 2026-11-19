@@ -87,6 +87,8 @@ shots/work/shot_007/use.txt  per shot, wins; '-' excludes an inherited file
 
 | Command | Does | GPU |
 |---|---|---|
+| `new` | create a project folder from the shipped template (`project.json`, `cast.csv`, `shots.csv`) | no |
+| `plan` | validate a project folder: references, texts, durations, grid, duplicates | no |
 | `prep` | extract tarballs, compose prompts, derive seeds, print the plan | no |
 | `batch` | render missing images across N GPUs, write sidecars (`--phase start` / `--phase stop`) | yes |
 | `check` | SSIM / mean-abs-diff / hue distance per pair, verdicts, review pack | no |
@@ -111,6 +113,37 @@ cannot drift apart without a red build.
 ```bash
 php -S 127.0.0.1:8765 -t studio      # PHP 8.1+ with pdo_sqlite and gd
 ```
+
+## Starting a new film
+
+```bash
+python -m bookends new ~/films/winter-light --name "Winter Light"
+```
+
+That writes a small, plain-text project — no database, no build step:
+
+```
+project.json     name, pixel size (64-grid), fps, style
+cast.csv         name, kind (character/prop/set), description
+shots.csv        shot, scene, duration_s, start_text, stop_text, motion_prompt, references
+references/      images named <character>_<view>.png, plus an empty plate per set
+shots/           one audio file per shot
+```
+
+Then:
+
+```bash
+python -m bookends plan --check ~/films/winter-light
+```
+
+`plan` is the cheap gate before any GPU time. It fails on missing references, empty
+start/stop text, quoted dialogue, duplicate shot ids, unparseable durations and
+sizes off the 64 grid, and warns on long shots, negations and over-budget prompts.
+Every one of those is a fault that would otherwise be discovered twenty minutes into
+a paid batch.
+
+The template's own README carries the writing rules, because that is where a new
+author will actually look.
 
 ## Determinism, so a re-roll is a decision
 
@@ -159,6 +192,9 @@ second GPU stays idle, and `WORKERS=0` says so instead of quietly running one wo
 ```
 bookends/            the package (torch imported only inside pipe.py)
 ├── config.py        env/flags -> validated Config
+├── scaffold.py      `new`: copy the shipped template into a project folder
+├── planfile.py      `plan`: validate project.json / cast.csv / shots.csv
+├── templates/short-film/   the starter project, with the writing rules in its README
 ├── shot.py          the shot contract; safe tarball extraction
 ├── prompt.py        prompt composition, styles, the anti-boilerplate rules
 ├── refs.py          reference selection (use.txt / default.txt) + manifest drift
