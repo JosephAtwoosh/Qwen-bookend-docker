@@ -1,0 +1,30 @@
+# Normalise line endings in the repository, not on the developer's machine.
+#
+# This matters here because CI regenerates studio/tests/fixtures/prompts.json with
+# the Python implementation and fails if the committed copy differs by a byte.
+# Without this file, a Windows checkout writes CRLF, Linux CI writes LF, and the
+# build fails for a reason that has nothing to do with prompts.
+#
+# The repo is pushed over the GitHub API rather than git, so this only takes effect
+# on clones -- but it stops the problem recurring as soon as anyone uses git.
+
+* text=auto eol=lf
+
+*.sh            text eol=lf
+*.php           text eol=lf
+*.py            text eol=lf
+*.json          text eol=lf
+*.md            text eol=lf
+*.yml           text eol=lf
+*.yaml          text eol=lf
+*.css           text eol=lf
+*.js            text eol=lf
+.htaccess       text eol=lf
+
+*.png           binary
+*.jpg           binary
+*.jpeg          binary
+*.webp          binary
+*.wav           binary
+*.mp4           binary
+*.safetensors   binary

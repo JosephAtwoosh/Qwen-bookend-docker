@@ -116,7 +116,11 @@ def main() -> int:
 
     dest = ROOT / "studio" / "tests" / "fixtures" / "prompts.json"
     dest.parent.mkdir(parents=True, exist_ok=True)
-    dest.write_text(json.dumps(out, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    # newline="\n" explicitly: Path.write_text uses os.linesep, which writes CRLF on
+    # Windows. CI regenerates this file on Linux and diffs it, so a platform-dependent
+    # line ending would fail the build for no real reason.
+    with open(dest, "w", encoding="utf-8", newline="\n") as fh:
+        fh.write(json.dumps(out, indent=2, ensure_ascii=False) + "\n")
     print(f"wrote {dest} ({len(out['cases'])} cases)")
     return 0
 
