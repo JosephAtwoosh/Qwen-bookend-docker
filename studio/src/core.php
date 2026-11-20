@@ -34,12 +34,29 @@ function e(?string $s): string
     return htmlspecialchars((string) $s, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
 }
 
+/**
+ * The directory the app is served from, without a trailing slash.
+ *
+ * Empty at a domain root, "/moviestudio" when served from a subdirectory. Relative URLs
+ * ("index.php?r=setup") break in the second case: from /moviestudio without a trailing
+ * slash the browser resolves them against / and lands on /index.php, which does not
+ * exist. Building absolute URLs from SCRIPT_NAME works in both arrangements, which
+ * matters because this app is tested locally under /moviestudio and uploaded to the
+ * site under the same subdirectory.
+ */
+function base_url(): string
+{
+    $script = $_SERVER['SCRIPT_NAME'] ?? '/index.php';
+    $dir = str_replace('\\', '/', dirname($script));
+    return $dir === '/' || $dir === '.' ? '' : rtrim($dir, '/');
+}
+
 /** Build an internal URL. */
 function url(string $route = '', array $params = []): string
 {
     $q = $route === '' ? [] : ['r' => $route];
     $q += $params;
-    return 'index.php' . ($q ? '?' . http_build_query($q) : '');
+    return base_url() . '/index.php' . ($q ? '?' . http_build_query($q) : '');
 }
 
 function redirect(string $where): never

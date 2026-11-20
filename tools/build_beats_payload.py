@@ -37,6 +37,12 @@ PLATES = ROOT / "plan" / "refs" / "sets"
 
 MAX_REFS = 2  # a stop adds start.jpg, and the model accepts 3 images
 
+# A wide shot should carry the set, not a character portrait. Portrait references are
+# page crops and drag the model into a close-up: scene 2's "wide of the garden" came back
+# as Oliver's face. Identity does not matter at that distance, so the plate alone is both
+# cheaper and more faithful.
+WIDE = ("wide of", "wide view", "high wide", "at a distance", "in the distance", "far edge")
+
 # Character slug -> reference base name. Chickens use the composited (in-yard) versions;
 # the humans are page crops that already carry a setting, so matting them fails.
 CHICKENS = {
@@ -121,8 +127,13 @@ def main() -> int:
     for row in rows:
         by_scene.setdefault(row["scene_no"], []).append(row)
 
-    if OUT.exists():
-        shutil.rmtree(OUT)
+    # Clear only what this script owns. shots/work holds rendered images and must survive
+    # a rebuild -- deleting it once destroyed 70 finished bookends, which were only
+    # recoverable because the source payloads happened to still exist.
+    for owned in ("shots/in", "reference"):
+        target = OUT / owned
+        if target.exists():
+            shutil.rmtree(target)
     ref_dir = OUT / "reference"
     shot_dir = OUT / "shots" / "in"
     ref_dir.mkdir(parents=True)
@@ -148,6 +159,8 @@ def main() -> int:
                     f"scene {scene_no}: beat index {beat['index']} vs cut {row['index']}"
                 )
             cast = list(dict.fromkeys(beat.get("cast") or []))
+            if any(marker in beat["start"].lower() for marker in WIDE) and "set" in cast:
+                cast = ["set"]
             if len(cast) > MAX_REFS:
                 problems.append(
                     f"scene {scene_no} shot {row['index']}: {len(cast)} references, max {MAX_REFS}"

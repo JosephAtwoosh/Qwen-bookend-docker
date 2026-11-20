@@ -337,7 +337,7 @@ switch ($route) {
         echo view_layout(
             'Shot ' . $s['slug'],
             view_shot($s, $p, assets_for((int) $p['id']), shot_selection((int) $s['id']), shot_bookends((int) $s['id']), shot_preview($s, $p)),
-            ['script' => 'assets/app.js']
+            ['script' => base_url() . '/assets/app.js']
         );
         break;
 

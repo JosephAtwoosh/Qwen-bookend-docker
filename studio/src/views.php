@@ -34,7 +34,7 @@ function view_layout(string $title, string $body, array $opts = []): string
     return '<!doctype html><html lang="en"><head><meta charset="utf-8">'
         . '<meta name="viewport" content="width=device-width, initial-scale=1">'
         . '<title>' . e($title) . ' &middot; ' . QB_APP . '</title>'
-        . '<link rel="stylesheet" href="assets/app.css"></head><body>'
+        . '<link rel="stylesheet" href="' . e(base_url() . '/assets/app.css') . '"></head><body>'
         . $nav . '<main>' . $flashes
         . '<header class="page"><h1>' . e($title) . '</h1>' . $sub . '</header>'
         . $body
