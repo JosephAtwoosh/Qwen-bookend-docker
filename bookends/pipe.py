@@ -1,11 +1,12 @@
 """Engines: the thing that turns a task into a PIL image.
 
-Two implementations behind one interface, for one reason: the whole loop has to
+Three implementations behind one interface, for two reasons: the whole loop has to
 be runnable on a machine with no GPU, so CI and a laptop can prove that task
-resolution, skipping, review and packing all work. `FakeEngine` is that path and
-is what `--fake-pipe` uses.
+resolution, skipping, review and packing all work (`FakeEngine`, used by
+`--fake-pipe`), and because a hosted endpoint removes the GPU entirely
+(`ApiEngine`).
 
-`QwenEngine` is the real one. It is the only module that imports torch, and it
+`QwenEngine` is the local one. It is the only module that imports torch, and it
 only does so inside `start()`.
 
 Profile notes (see docs/VRAM.md for the measurements):
@@ -13,15 +14,24 @@ Profile notes (see docs/VRAM.md for the measurements):
   fp8-t2i-cpu    transformer fp8 on the GPU, text encoder on the CPU
   fp8-offload    transformer fp8, every component swapped in on demand
   bf16-offload   sequential CPU offload; slow, but runs on anything
+  hosted         no local weights at all; one HTTP call per image
 
 fp8 is not free: converting in place needs the whole 40.9 GB bf16 transformer
 resident in RAM first. `hardware.recommend()` refuses the fp8 profiles below
 ~48 GB RAM for that reason.
+
+Measured 2026-11-20 on the same shot, same seed: local fp8-dual 157 s per start and
+229 s per stop; hosted qwen-image-3.0-pro 13.2 s and 18.2 s. Hosted also keeps the
+pair in one scene, where the local stop drifted.
 """
 from __future__ import annotations
 
+import base64
 import hashlib
+import io
+import json
 import math
+import os
 from pathlib import Path
 
 from PIL import Image
@@ -289,7 +299,166 @@ class QwenEngine(Engine):
 
 
 def make_engine(cfg: Config, device_index: int = 0, fake: bool = False) -> Engine:
-    return FakeEngine(cfg) if fake else QwenEngine(cfg, device_index)
+    if fake:
+        return FakeEngine(cfg)
+    if cfg.engine == "tokenplan":
+        return ApiEngine(cfg)
+    return QwenEngine(cfg, device_index)
+
+
+def api_key(cfg: Config) -> str:
+    """The hosted key: environment first, then a file.
+
+    The file path exists because a key kept only in a shell profile disappears the
+    moment a job runs unattended.
+    """
+    key = (os.environ.get("DASHSCOPE_API_KEY") or cfg.api_key or "").strip()
+    if not key and cfg.api_key_file:
+        path = Path(cfg.api_key_file).expanduser()
+        if path.is_file():
+            key = path.read_text(encoding="utf-8").strip()
+    if not key:
+        raise RuntimeError(
+            "no hosted API key: set DASHSCOPE_API_KEY, or point API_KEY_FILE at a file "
+            "containing the key (Token Plan keys start with sk-sp-)"
+        )
+    return key
+
+
+def data_uri(image: Image.Image, quality: int = 92) -> str:
+    """JPEG data URI. JPEG rather than PNG because these are photographic references
+    and the payload is base64, so every kilobyte costs 1.33."""
+    buf = io.BytesIO()
+    image.convert("RGB").save(buf, "JPEG", quality=quality)
+    return "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
+
+
+def find_image_url(doc: dict) -> str | None:
+    """Token Plan returns output.choices[0].message.content[].image."""
+    choices = (doc.get("output") or {}).get("choices") or []
+    for choice in choices:
+        for part in (choice.get("message") or {}).get("content") or []:
+            if isinstance(part, dict) and part.get("image"):
+                return part["image"]
+    # Tolerate the OpenAI-ish shape too, so a future endpoint change is not fatal.
+    data = doc.get("data") or []
+    if data and isinstance(data[0], dict) and data[0].get("url"):
+        return data[0]["url"]
+    return None
+
+
+def post_json(url: str, key: str, body: dict, timeout: float) -> dict:
+    import urllib.error
+    import urllib.request
+
+    payload = json.dumps(body).encode("utf-8")
+    req = urllib.request.Request(
+        url,
+        data=payload,
+        headers={
+            "Authorization": f"Bearer {key}",
+            "Content-Type": "application/json",
+            "User-Agent": "bookends/1.0",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        detail = exc.read()[:500].decode("utf-8", "replace")
+        raise RuntimeError(f"hosted API HTTP {exc.code}: {detail}") from None
+
+
+def get_bytes(url: str, timeout: float = 120.0) -> bytes:
+    import urllib.request
+
+    with urllib.request.urlopen(url, timeout=timeout) as resp:
+        return resp.read()
+
+
+class ApiEngine(Engine):
+    """Hosted QwenCloud Token Plan engine: no weights, no GPU, one HTTP call per image.
+
+    The task contract is identical to QwenEngine -- same images in the same order, same
+    prompt, same seed -- so batch, prep, review and the studio are unchanged. The start
+    frame still goes last for stops, which the hosted API honours because image order is
+    defined by the content array.
+    """
+
+    name = "hosted"
+
+    def __init__(self, cfg: Config, poster=None, fetcher=None):
+        self.cfg = cfg
+        self.notes: list[str] = []
+        self.used_profile = "hosted"
+        self._post = poster or post_json
+        self._fetch = fetcher or get_bytes
+        self._key = ""
+        self._url = ""
+
+    def start(self) -> None:
+        self._key = api_key(self.cfg)
+        self._url = (
+            f"https://{self.cfg.api_host}"
+            "/api/v1/services/aigc/multimodal-generation/generation"
+        )
+        self.notes.append(f"hosted {self.cfg.api_model} at {self.cfg.api_host}")
+        self.notes.append(f"hosted key {self._key[:3]}…{self._key[-4:]}")
+
+    def generate(self, task) -> Image.Image:
+        images, resized = prepare_images(task.images, self.cfg.ref_max_edge)
+        for note in resized:
+            self.notes.append(f"reference downscaled: {note}")
+
+        # Checked before the call: the API answers 400 after the request is billed, and a
+        # stop spends one of its image slots on the rendered start.
+        if len(images) > self.cfg.api_max_refs:
+            raise RuntimeError(
+                f"{task.shot}:{task.tag}: hosted {self.cfg.api_model} accepts at most "
+                f"{self.cfg.api_max_refs} images and this task sends {len(images)} "
+                f"({', '.join(p.name for p in task.images)}). A stop spends one slot on "
+                f"start.jpg, so it can carry at most {self.cfg.api_max_refs - 1} references. "
+                f"Drop one from use.txt."
+            )
+
+        content = [{"image": data_uri(im, self.cfg.jpeg_quality)} for im in images]
+        content.append({"text": task.prompt})
+        body = {
+            "model": self.cfg.api_model,
+            "input": {"messages": [{"role": "user", "content": content}]},
+            "parameters": {
+                "size": f"{self.cfg.width}*{self.cfg.height}",
+                "n": 1,
+                "seed": int(task.seed),
+                # Keep the prompt verbatim: rewriting would break "same seed, same shot".
+                "prompt_extend": False,
+                "watermark": False,
+            },
+        }
+        doc = self._post(self._url, self._key, body, self.cfg.api_timeout)
+        url = find_image_url(doc)
+        if not url:
+            raise RuntimeError(f"hosted response had no image: {str(doc)[:300]}")
+        data = self._fetch(url)
+        image = Image.open(io.BytesIO(data)).convert("RGB")
+        if image.size != (self.cfg.width, self.cfg.height):
+            self.notes.append(
+                f"hosted returned {image.size[0]}x{image.size[1]}, expected "
+                f"{self.cfg.width}x{self.cfg.height}"
+            )
+        return image
+
+    def info(self) -> dict:
+        return {
+            "engine": self.name,
+            "used_profile": self.used_profile,
+            "device": self.cfg.api_host,
+            "model": self.cfg.api_model,
+            "notes": list(self.notes),
+        }
+
+    def close(self) -> None:
+        return None
 
 
 def sha256_file(path: Path) -> str:

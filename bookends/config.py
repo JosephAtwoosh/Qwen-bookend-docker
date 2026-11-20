@@ -62,6 +62,20 @@ class Config:
     # execution
     workers: int = 0  # 0 = decide from hardware
 
+    # engine: "local" runs the weights here; "tokenplan" calls the hosted endpoint.
+    # Hosted needs no GPU, no weights and no RAM, and measured 12x faster (13.2 s vs
+    # 157 s per start), but it bills per image and returns a different model version.
+    engine: str = "local"
+    api_model: str = "qwen-image-3.0-pro"
+    api_host: str = "token-plan.maas.qwencloudapi.com"
+    api_key: str = ""        # fallback; prefer the environment
+    api_key_file: str = ""   # file holding the key, for unattended runs
+    api_timeout: float = 600.0
+    # qwen-image-3.0 accepts 1-3 image inputs, and a stop already spends one on the
+    # rendered start, so a stop can carry at most two references. Exceeding it is a 400
+    # after the call is made, so it is checked before sending.
+    api_max_refs: int = 3
+
     # paths (relative defaults so a local run works; the image sets absolutes)
     shots_dir: Path = Path("shots")
     reference_dir: Path = Path("reference")
@@ -118,6 +132,10 @@ class Config:
             )
         if self.ref_max_edge and self.ref_max_edge < 256:
             errors.append(f"ref_max_edge must be 0 (off) or >= 256, got {self.ref_max_edge}")
+        if self.engine not in ("local", "tokenplan"):
+            errors.append(f"engine must be 'local' or 'tokenplan', got {self.engine!r}")
+        if self.engine == "tokenplan" and not self.api_model:
+            errors.append("engine=tokenplan needs api_model")
         if errors:
             raise ConfigError("; ".join(errors))
         return warnings
@@ -142,6 +160,13 @@ class Config:
             style=env.get("STYLE") or None,
             max_prompt_words=_int(env, "MAX_PROMPT_WORDS", cls.max_prompt_words),
             ref_max_edge=_int(env, "REF_MAX_EDGE", cls.ref_max_edge),
+            engine=env.get("ENGINE", cls.engine),
+            api_model=env.get("API_MODEL", cls.api_model),
+            api_host=env.get("API_HOST", cls.api_host),
+            api_key=env.get("DASHSCOPE_API_KEY", cls.api_key) or cls.api_key,
+            api_key_file=env.get("API_KEY_FILE", cls.api_key_file),
+            api_timeout=_float(env, "API_TIMEOUT", cls.api_timeout),
+            api_max_refs=_int(env, "API_MAX_REFS", cls.api_max_refs),
             workers=_int(env, "WORKERS", cls.workers),
             shots_dir=Path(env.get("SHOTS_DIR", "shots")),
             reference_dir=Path(env.get("REFERENCE_DIR", "reference")),

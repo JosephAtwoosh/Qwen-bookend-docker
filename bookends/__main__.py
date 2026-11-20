@@ -44,6 +44,14 @@ def _common(p: argparse.ArgumentParser) -> None:
     g.add_argument("--steps", type=int)
     g.add_argument("--workers", type=int)
     g.add_argument("--profile", choices=PROFILES)
+    g.add_argument(
+        "--engine",
+        choices=("local", "tokenplan"),
+        help="local runs the weights here; tokenplan calls the hosted endpoint (no GPU, bills per image)",
+    )
+    g.add_argument("--api-model", dest="api_model", help="hosted model id (default qwen-image-3.0-pro)")
+    g.add_argument("--api-host", dest="api_host", help="hosted API host")
+    g.add_argument("--api-key-file", dest="api_key_file", help="file holding the hosted API key")
     g.add_argument("--pair-mode", dest="pair_mode", choices=("sequential", "independent"))
     g.add_argument("--style", help="style key (pixar, clay, cartoon, anime, noir, realistic) or free text")
     g.add_argument("--seed-base", dest="seed_base", type=int)
@@ -128,6 +136,7 @@ def config_from(args: argparse.Namespace) -> Config:
         "shots_dir", "reference_dir", "output_dir", "models_dir", "model_id", "revision",
         "width", "height", "steps", "workers", "profile", "pair_mode", "style",
         "seed_base", "jpeg_quality", "max_prompt_words",
+        "engine", "api_model", "api_host", "api_key_file",
     )
     overrides = {k: getattr(args, k, None) for k in keys}
     return Config.from_env(**overrides)
@@ -268,7 +277,15 @@ def cmd_batch(cfg: Config, args) -> int:
     workers = cfg.workers or hw["workers"]
     if args.fake_pipe:
         workers = 1
-    print(f"profile {cfg.profile}  workers {workers}  size {cfg.width}x{cfg.height}  steps {cfg.steps}")
+    if cfg.engine != "local":
+        # The profile describes how weights are placed locally; a hosted run has none,
+        # and printing one would be a lie in the log.
+        print(
+            f"engine {cfg.engine}  model {cfg.api_model}  host {cfg.api_host}  "
+            f"size {cfg.width}x{cfg.height}"
+        )
+    else:
+        print(f"profile {cfg.profile}  workers {workers}  size {cfg.width}x{cfg.height}  steps {cfg.steps}")
     for reason in hw["reasons"]:
         print(f"  - {reason}")
 

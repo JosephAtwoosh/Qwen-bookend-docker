@@ -29,8 +29,9 @@ from .shot import Shot
 
 DEFAULT_THUMB_WIDTH = 480
 SSIM_HIGH = 0.97   # above this the pair is effectively the same frame
-SSIM_LOW = 0.55    # below this the pair has little in common
-HUE_HIGH = 0.35    # L1 distance of normalised hue histograms
+SSIM_LOW = 0.30    # below this the subject itself probably jumped, whatever the palette did
+SSIM_MOVE = 0.60   # 0.30-0.60 with the palette held is a camera move, which is a pass
+HUE_HIGH = 0.20    # L1 distance of normalised hue histograms; the primary drift signal
 WORK_WIDTH = 256   # metrics are computed at this width for speed and scale-invariance
 
 
@@ -117,7 +118,7 @@ def hue_distance(a: np.ndarray, b: np.ndarray) -> float:
 
 
 def judge(
-    pair: PairResult, *, ssim_high: float = SSIM_HIGH, ssim_low: float = SSIM_LOW, hue_high: float = HUE_HIGH
+    pair: PairResult, *, ssim_high: float = SSIM_HIGH, ssim_low: float = SSIM_LOW, hue_high: float = HUE_HIGH, ssim_move: float = SSIM_MOVE
 ) -> PairResult:
     if pair.start is None or pair.stop is None:
         pair.verdict = "missing"
@@ -136,16 +137,27 @@ def judge(
             f"SSIM {pair.ssim:.3f} >= {ssim_high}: start and stop are nearly the same frame, "
             f"so there is almost no motion to interpolate"
         )
+    elif pair.hue_distance is not None and pair.hue_distance > hue_high:
+        # Colour moved: that is the failure FLF2V cannot hide, whatever the SSIM says.
+        pair.verdict = "drift"
+        pair.reasons.append(
+            f"hue distance {pair.hue_distance:.3f} > {hue_high}: the colour balance moved between "
+            f"frames, which reads as a different time of day"
+        )
     elif pair.ssim <= ssim_low:
         pair.verdict = "drift"
         pair.reasons.append(
-            f"SSIM {pair.ssim:.3f} <= {ssim_low}: the pair has little in common; check lighting, "
-            f"background and framing"
+            f"SSIM {pair.ssim:.3f} <= {ssim_low}: the pair has little in common even though the "
+            f"palette held; check that the subject did not jump"
         )
-    elif pair.hue_distance is not None and pair.hue_distance > hue_high:
-        pair.verdict = "drift"
+    elif pair.ssim <= ssim_move:
+        # Recalibrated 2026-11-20 on 16 hosted pairs: cinematic beats (a push in, the sun
+        # rising, a subject stepping forward) land at SSIM 0.35-0.60 with hue under 0.12.
+        # Calling those "drift" flagged 10 of 16 good pairs. A camera move is a pass.
+        pair.verdict = "pass"
         pair.reasons.append(
-            f"hue distance {pair.hue_distance:.3f} > {hue_high}: the colour balance moved between frames"
+            f"SSIM {pair.ssim:.3f}: deliberate camera move (hue held at "
+            f"{pair.hue_distance if pair.hue_distance is not None else 0:.3f})"
         )
     else:
         pair.verdict = "pass"
@@ -158,6 +170,7 @@ def measure(
     ssim_high: float = SSIM_HIGH,
     ssim_low: float = SSIM_LOW,
     hue_high: float = HUE_HIGH,
+    ssim_move: float = SSIM_MOVE,
 ) -> PairResult:
     start = shot.root / "start.jpg"
     stop = shot.root / "stop.jpg"
