@@ -31,6 +31,30 @@ from .config import Config
 REQUIRED_SIDE = ("width", "height")
 
 
+def prepare_images(paths: list[Path], max_edge: int = 0) -> tuple[list[Image.Image], list[str]]:
+    """Load reference images, optionally capping the long edge.
+
+    Attention over the joint sequence grows with every reference's latent tokens, and
+    a 1672x941 plate is ~6,200 of them against an output of ~3,840. Capping at 768
+    keeps colours, silhouette and framing while cutting that to ~1,300.
+
+    Returns the images plus a note per image that was resized, so the sidecar records
+    exactly what the model was shown.
+    """
+    images: list[Image.Image] = []
+    notes: list[str] = []
+    for path in paths:
+        with Image.open(path) as im:
+            im = im.convert("RGB")
+            if max_edge and max(im.size) > max_edge:
+                scale = max_edge / max(im.size)
+                new = (max(1, int(im.width * scale)), max(1, int(im.height * scale)))
+                notes.append(f"{Path(path).name} {im.width}x{im.height} -> {new[0]}x{new[1]}")
+                im = im.resize(new, Image.LANCZOS)
+            images.append(im)
+    return images, notes
+
+
 class Engine:
     """Interface: start once, generate many, close once."""
 
@@ -204,10 +228,9 @@ class QwenEngine(Engine):
         torch = self._torch
         self.pipe.set_progress_bar_config(disable=True)
 
-        images = []
-        for path in task.images:
-            with Image.open(path) as im:
-                images.append(im.convert("RGB"))
+        images, resized = prepare_images(task.images, self.cfg.ref_max_edge)
+        for note in resized:
+            self.notes.append(f"reference downscaled: {note}")
 
         device = f"cuda:{self.device_index}" if torch.cuda.is_available() else "cpu"
         generator = torch.Generator(device=device).manual_seed(task.seed)

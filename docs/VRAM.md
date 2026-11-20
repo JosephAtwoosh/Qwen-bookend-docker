@@ -95,9 +95,12 @@ Three paths were tried and are recorded so nobody repeats them:
 
 | Change | Expected | Risk |
 |---|---|---|
+| **CFG off** (`true_cfg_scale=1.0`, no negative prompt) | **~2×** — 28 steps at cfg 4 runs two forward passes per step | weaker prompt adherence; needs one comparison |
 | steps 28 → 20 | ~30 % faster | quality; check one frame first |
+| ref cap 768 (implemented, `REF_MAX_EDGE`) | 20–35 % on stops; the plate is ~6,200 tokens | none, if quality holds |
+| drop the plate from *stop* tasks | ~10 % on stops | the start frame may lock the set less firmly |
+| 8-step Lightning LoRA | ~2–3× | identity drift at low step counts, and it needs a LoRA load path |
 | 1280×768 → 1024×576 | ~40 % fewer tokens | bookends no longer match LTX's output size |
-| both | pair ~170 s, film ~12 h (~$10) | compounding quality loss |
 
 Also worth measuring: dropping the plate from *stop* tasks, since `start.jpg` already
 carries the set. That removes one input from the more expensive half of every pair.

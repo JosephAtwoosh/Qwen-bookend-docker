@@ -54,6 +54,10 @@ class Config:
     pair_mode: str = "sequential"
     style: str | None = None
     max_prompt_words: int = 120
+    # Qwen-Image-Edit attends over the output latents *and* every reference's latents,
+    # so a 1672x941 plate costs ~6,200 tokens against an output of ~3,840. Capping
+    # references at 768 on the long edge cuts that plate to ~1,300 tokens. 0 disables.
+    ref_max_edge: int = 768
 
     # execution
     workers: int = 0  # 0 = decide from hardware
@@ -112,6 +116,8 @@ class Config:
                 f"max_prompt_words={self.max_prompt_words} is permissive; the take-2 post-mortem "
                 f"blames 505-word prompts for the model ignoring the shot"
             )
+        if self.ref_max_edge and self.ref_max_edge < 256:
+            errors.append(f"ref_max_edge must be 0 (off) or >= 256, got {self.ref_max_edge}")
         if errors:
             raise ConfigError("; ".join(errors))
         return warnings
@@ -135,6 +141,7 @@ class Config:
             pair_mode=env.get("PAIR_MODE", cls.pair_mode),
             style=env.get("STYLE") or None,
             max_prompt_words=_int(env, "MAX_PROMPT_WORDS", cls.max_prompt_words),
+            ref_max_edge=_int(env, "REF_MAX_EDGE", cls.ref_max_edge),
             workers=_int(env, "WORKERS", cls.workers),
             shots_dir=Path(env.get("SHOTS_DIR", "shots")),
             reference_dir=Path(env.get("REFERENCE_DIR", "reference")),
