@@ -9,7 +9,13 @@
 FROM pytorch/pytorch:2.6.0-cuda12.6-cudnn9-runtime
 
 ARG DIFFUSERS_REF=main
-ARG TORCHAO_SPEC=torchao>=0.8
+# torchao is pinned to the last release that imports on the base image's torch 2.6.
+# Measured on a rented RTX 5000 Ada: torchao 0.18 refuses to load on torch 2.6
+# ("upgrade to torch >= 2.11.0"), which silently downgrades the engine to sequential
+# CPU offload at 495 s/image instead of fp8-dual at 159 s. diffusers' own torchao
+# integration also needs >= 0.15 and disables itself below that; we call quantize_
+# directly, so 0.9 is fine.
+ARG TORCHAO_SPEC=torchao==0.9.0
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
@@ -42,7 +48,18 @@ RUN pip install --no-cache-dir --upgrade pip \
 # torchao provides float8 weight-only quantisation. --no-deps is deliberate: torchao
 # depends on torch, and letting pip resolve it would replace the CUDA 12.6 build
 # this image is based on with whatever wheel pip finds first.
-RUN pip install --no-cache-dir --no-deps "${TORCHAO_SPEC}"
+#
+# The verification step is the point of this block: a torchao that imports but cannot
+# quantise is worse than no torchao at all, because the engine degrades quietly. This
+# fails the build instead, so a broken FP8 path can never ship.
+RUN pip install --no-cache-dir --no-deps "${TORCHAO_SPEC}" \
+ && python - <<'PY'
+import torch, torchao
+from torchao.quantization import float8_weight_only, quantize_
+layer = torch.nn.Linear(64, 64)
+quantize_(layer, float8_weight_only())
+print("torchao", torchao.__version__, "OK on torch", torch.__version__)
+PY
 
 WORKDIR /app
 COPY pyproject.toml README.md ./
