@@ -131,33 +131,59 @@ class QwenEngine(Engine):
 
     def _apply_profile(self, device: str) -> None:
         torch = self._torch
-        want = self.cfg.profile
+        # "auto" must be resolved against this box before anything else: it is not a
+        # profile the engine can apply, and treating it as one silently selected
+        # sequential CPU offload (measured 495 s/image vs ~19 GB VRAM for fp8).
+        from .hardware import resolve_profile
 
-        if want in ("fp8-t2i-cpu", "fp8-offload"):
-            if self._try_quantise_fp8():
-                self.used_profile = want
+        want = resolve_profile(self.cfg)
+
+        if want in ("fp8-dual", "fp8-t2i-cpu", "fp8-offload"):
+            if not self._try_quantise_fp8():
+                want = "bf16-offload"
+        elif want != "bf16-offload":
+            want = "bf16-offload"
+
+        if want in ("fp8-dual", "fp8-t2i-cpu"):
+            # Measured shape that works on a 32 GB Ada card: quantise the text encoder
+            # as well and keep everything resident. No offload, therefore no
+            # `_has_compatible_shallow_copy_type`, which torchao 0.9 does not implement.
+            if self._try_quantise_text_encoder():
+                self.used_profile = "fp8-dual"
+                self.pipe.transformer.to(device)
+                self.pipe.vae.to(device)
+                self.pipe.text_encoder.to(device)
+                self.notes.append("transformer and text encoder both fp8, resident on the GPU")
             else:
                 self.used_profile = "bf16-offload"
-        elif want == "bf16-offload":
-            self.used_profile = "bf16-offload"
-        else:  # "auto" reaching this far means nothing was decided
-            self.used_profile = "bf16-offload"
-
-        if self.used_profile == "fp8-t2i-cpu":
-            # Text encoder is 16.6 GB; the CPU holds it, the GPU only the transformer.
-            self.pipe.text_encoder.to("cpu")
-            self.pipe.transformer.to(device)
-            self.pipe.vae.to(device)
-            self.notes.append("text encoder on CPU, transformer+VAE on GPU")
-        else:
+                self.notes.append("text encoder quantisation failed; falling back to bf16 offload")
+        elif want == "fp8-offload":
+            self.used_profile = "fp8-offload"
             if torch.cuda.is_available():
                 torch.cuda.set_device(self.device_index)
-            if self.used_profile == "fp8-offload":
-                self.pipe.enable_model_cpu_offload()
-                self.notes.append("fp8 transformer with model CPU offload")
-            else:
-                self.pipe.enable_sequential_cpu_offload()
-                self.notes.append("sequential CPU offload (slow, works on small VRAM)")
+            self.pipe.enable_model_cpu_offload()
+            self.notes.append(
+                "fp8 transformer with model CPU offload (needs torchao >= 0.15; older "
+                "torchao raises NotImplementedError on shallow_copy)"
+            )
+        else:
+            self.used_profile = "bf16-offload"
+            if torch.cuda.is_available():
+                torch.cuda.set_device(self.device_index)
+            self.pipe.enable_sequential_cpu_offload()
+            self.notes.append("sequential CPU offload (slow, works on small VRAM)")
+
+    def _try_quantise_text_encoder(self) -> bool:
+        try:
+            from torchao.quantization import float8_weight_only, quantize_
+
+            quantize_(self.pipe.text_encoder, float8_weight_only())
+            return True
+        except Exception as exc:  # noqa: BLE001
+            self.notes.append(
+                f"text encoder fp8 failed ({type(exc).__name__}: {exc}); falling back"
+            )
+            return False
 
     def _try_quantise_fp8(self) -> bool:
         try:

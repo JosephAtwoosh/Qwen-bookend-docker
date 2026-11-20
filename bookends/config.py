@@ -11,8 +11,16 @@ from dataclasses import dataclass, field, asdict
 from pathlib import Path
 
 # Profile = how the 40.9 GB transformer and the 16.6 GB text encoder are placed.
-# bf16 for both does not fit in 24 GB, so the default is fp8 + text encoder on CPU.
-PROFILES = ("auto", "fp8-t2i-cpu", "fp8-offload", "bf16-offload")
+#
+#   fp8-dual      both quantised to fp8, both resident on the GPU (~27.5 GB measured).
+#                 The only fast profile that works: it never touches the offload
+#                 machinery, which torchao <0.15 cannot survive.
+#   fp8-offload   fp8 transformer with model CPU offload. Needs torchao >= 0.15.
+#   bf16-offload  sequential CPU offload; always works, ~8 minutes per image.
+#
+# bf16 for both does not fit in 24 GB, and pinning the text encoder to the CPU while
+# the transformer sits on the GPU is not supported by QwenImageEditPlusPipeline.
+PROFILES = ("auto", "fp8-dual", "fp8-offload", "bf16-offload")
 PAIR_MODES = ("sequential", "independent")
 
 DEFAULT_STYLE_SUFFIX = (

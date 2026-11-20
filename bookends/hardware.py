@@ -122,6 +122,19 @@ def model_cache_size_gb(models_dir: Path) -> float:
     return round(total / 1024**3, 1)
 
 
+def resolve_profile(cfg) -> str:
+    """Turn `auto` into a concrete profile name.
+
+    Needed because "auto" is not a profile the engine can apply -- it has to be
+    resolved against the box it is running on. Leaving it unresolved silently meant
+    sequential CPU offload, which measured 495 s per image on a 32 GB Ada card
+    against ~19 GB of VRAM for the fp8 path.
+    """
+    if cfg.profile != "auto":
+        return cfg.profile
+    return recommend(cfg)["profile"]
+
+
 def recommend(cfg) -> dict:
     """Decide profile and worker count from measured hardware.
 
@@ -142,9 +155,19 @@ def recommend(cfg) -> dict:
         elif ram is None:
             profile = "fp8-t2i-cpu"
             reasons.append("RAM unknown; assuming fp8 conversion fits")
+        elif ram >= 48 and vram >= 30:
+            profile = "fp8-dual"
+            reasons.append(
+                f"{ram:.0f} GB RAM and {vram:.0f} GB VRAM: fp8 transformer + fp8 text "
+                f"encoder, both resident (~27.5 GB measured, 29.7 GB peak)"
+            )
         elif ram >= 48 and vram >= 21:
-            profile = "fp8-t2i-cpu"
-            reasons.append(f"{ram:.0f} GB RAM and {vram:.0f} GB VRAM fit fp8 + CPU text encoder")
+            profile = "bf16-offload"
+            reasons.append(
+                f"{vram:.0f} GB VRAM is short of the ~30 GB the dual-resident fp8 profile "
+                f"needs, and fp8 + CPU offload needs torchao >= 0.15; using sequential CPU "
+                f"offload, which measured ~495 s per image"
+            )
         else:
             profile = "bf16-offload"
             reasons.append(

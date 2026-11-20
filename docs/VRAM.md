@@ -53,12 +53,55 @@ than crashing mid-batch.
 
 ## Measured throughput
 
-| GPU | RAM | Profile | s/bookend | Notes |
-|---|---|---|---|---|
-| _not yet measured_ | | | | P2 of the plan: one rented instance, build, three images, terminate |
+First real session, 2026-11-19/20, Vast.ai contract 61532948 (since destroyed):
 
-`./scripts/bench.sh 3` fills this in. Until it does, no throughput claim in this
-repo should be treated as fact — the numbers above are file sizes, not timings.
+| | |
+|---|---|
+| GPU | NVIDIA RTX 5000 Ada Generation, 32 760 MiB, driver 615.71.09 |
+| Host | 503 GB RAM, 120 GB disk |
+| Image | `ghcr.io/josephatwoosh/qwen-bookend-docker:latest`, 3.14 GiB, pulled in ~4 min |
+| Weights | 57.7 GB fetched in **3 min 34 s** (~150 MB/s) from HF; ungated, no token |
+| Model load | **26 s** warm; the 7B text encoder alone took several minutes cold |
+
+| Profile | Used VRAM | Seconds per image (1280×768, 28 steps) |
+|---|---|---|
+| `fp8-dual` (both modules fp8, resident) | **30.9 GB peak** | **159 s** for a start, **229 s** for a stop |
+| `bf16-offload` (sequential CPU offload) | 3.9 GB | **495 s** |
+
+So a start/stop pair costs ~388 s, roughly $0.09 of GPU, and yields ~15 pairs an hour.
+A whole 250-pair film is therefore **~27 GPU-hours (~$22)** — more than the $8 credit,
+which is why the next session must first choose cheaper settings (see below).
+
+The stop is ~44 % dearer than the start because it carries one more input image (the
+rendered start), and VL encoding scales with the number of inputs.
+
+## Profiles that do not work on this stack
+
+Three paths were tried and are recorded so nobody repeats them:
+
+1. **Text encoder pinned to the CPU, transformer on GPU.** Dies at generation with
+   `Expected all tensors to be on the same device ... index_select`: the pipeline hands
+   the CPU-resident prompt embeddings straight to the on-GPU transformer.
+2. **fp8 + `enable_model_cpu_offload`.** Dies with
+   `NotImplementedError: AffineQuantizedTensor dispatch ... _has_compatible_shallow_copy_type`,
+   which torchao 0.9 does not implement. diffusers itself wants `torchao >= 0.15`
+   (it disables its own integration below that), and 0.15+ wants torch ≥ 2.11, while
+   this image is built on torch 2.6.0+cu126.
+3. **`--profile auto` reaching the engine unresolved.** It fell through to sequential
+   CPU offload — 495 s/image instead of 159 s. Fixed: `auto` is now resolved by
+   `hardware.resolve_profile()` before the engine sees it, with tests.
+
+## Settings to try next, in order
+
+| Change | Expected | Risk |
+|---|---|---|
+| steps 28 → 20 | ~30 % faster | quality; check one frame first |
+| 1280×768 → 1024×576 | ~40 % fewer tokens | bookends no longer match LTX's output size |
+| both | pair ~170 s, film ~12 h (~$10) | compounding quality loss |
+
+Also worth measuring: dropping the plate from *stop* tasks, since `start.jpg` already
+carries the set. That removes one input from the more expensive half of every pair.
+
 
 ## Weights on a rented box
 

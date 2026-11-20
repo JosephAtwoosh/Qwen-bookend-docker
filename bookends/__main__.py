@@ -18,7 +18,7 @@ import sys
 from pathlib import Path
 
 from . import __version__, hardware, planfile, refs, review, scaffold, stylepack
-from .config import Config, ConfigError
+from .config import PROFILES, Config, ConfigError
 from .doctor import collect as doctor_collect
 from .doctor import format_text as doctor_text
 from .pack import pack as pack_shots
@@ -43,7 +43,7 @@ def _common(p: argparse.ArgumentParser) -> None:
     g.add_argument("--height", type=int)
     g.add_argument("--steps", type=int)
     g.add_argument("--workers", type=int)
-    g.add_argument("--profile", choices=("auto", "fp8-t2i-cpu", "fp8-offload", "bf16-offload"))
+    g.add_argument("--profile", choices=PROFILES)
     g.add_argument("--pair-mode", dest="pair_mode", choices=("sequential", "independent"))
     g.add_argument("--style", help="style key (pixar, clay, cartoon, anime, noir, realistic) or free text")
     g.add_argument("--seed-base", dest="seed_base", type=int)
@@ -262,10 +262,13 @@ def cmd_batch(cfg: Config, args) -> int:
         return 0
 
     hw = hardware.recommend(cfg)
+    # Resolve "auto" here as well, so the reported profile is the one that runs.
+    if cfg.profile == "auto":
+        cfg.profile = hw["profile"]
     workers = cfg.workers or hw["workers"]
     if args.fake_pipe:
         workers = 1
-    print(f"profile {hw['profile']}  workers {workers}  size {cfg.width}x{cfg.height}  steps {cfg.steps}")
+    print(f"profile {cfg.profile}  workers {workers}  size {cfg.width}x{cfg.height}  steps {cfg.steps}")
     for reason in hw["reasons"]:
         print(f"  - {reason}")
 
