@@ -91,16 +91,47 @@ Three paths were tried and are recorded so nobody repeats them:
    CPU offload — 495 s/image instead of 159 s. Fixed: `auto` is now resolved by
    `hardware.resolve_profile()` before the engine sees it, with tests.
 
-## Settings to try next, in order
+## Speed levers, measured 2026-11-20 (RTX 6000 Ada, 48 GB, 339 GB RAM)
 
-| Change | Expected | Risk |
-|---|---|---|
-| **CFG off** (`true_cfg_scale=1.0`, no negative prompt) | **~2×** — 28 steps at cfg 4 runs two forward passes per step | weaker prompt adherence; needs one comparison |
-| steps 28 → 20 | ~30 % faster | quality; check one frame first |
-| ref cap 768 (implemented, `REF_MAX_EDGE`) | 20–35 % on stops; the plate is ~6,200 tokens | none, if quality holds |
-| drop the plate from *stop* tasks | ~10 % on stops | the start frame may lock the set less firmly |
-| 8-step Lightning LoRA | ~2–3× | identity drift at low step counts, and it needs a LoRA load path |
-| 1280×768 → 1024×576 | ~40 % fewer tokens | bookends no longer match LTX's output size |
+Same shot, same seed, references capped at 768, fp8-dual throughout. One image each:
+
+| | config | seconds | speedup | SSIM vs A | detail (Laplacian var) |
+|---|---|---|---|---|---|
+| A | 28 steps, CFG on | 156.9 | 1.00× | — | 94.4 |
+| B | 28 steps, CFG off | 77.6 | **2.02×** | **0.484** | 118.3 |
+| C | 8 steps, CFG on | 45.2 | 3.47× | 0.634 | **54.5** |
+| D | 8 steps, CFG off | **23.8** | **6.59×** | 0.568 | 96.3 |
+
+**Neither cheap lever is free, and they fail differently:**
+
+- **CFG off** roughly halves the time (two forward passes per step become one) but the
+  composition drifts: SSIM 0.48 against the baseline, a different yard, different
+  lighting, Frederick re-staged. Detail is actually *higher* (118 vs 94), so the image
+  looks crisp — it is simply a different shot. Unacceptable for bookends, where the
+  frame must match the approved start.
+- **8 steps** keeps the composition (best SSIM of the reduced set, 0.634) but goes
+  soft: **42 % less detail**. Visible as haze and lost feather/brick texture.
+- **Both** gives the fastest image and the worst result.
+
+Practical consequence: 156.9 s and 229 s per start/stop remain the honest numbers at
+acceptable quality. A whole film at that rate is ~27 GPU-hours (~$22), so the film
+needs either fewer pairs or a distilled low-step checkpoint.
+
+**Still worth testing** (in this order):
+
+1. **Lightning/distilled LoRA at 4–8 steps.** Plain 8 steps is soft because the base
+   model is not trained for it; a distilled adapter is. This is the only lever that
+   could plausibly deliver 3× without the softness, and it needs a LoRA load path.
+2. **20 steps, CFG on** — untested midpoint, expect ~112 s and maybe −15 % detail.
+3. **Reference cap in isolation** — A here (capped, faster card) landed within 1 % of
+   the earlier uncapped run on a slower card, so the cap's own contribution is still
+   unmeasured. Measure it by running one uncapped image on the same host.
+
+**Cost of measuring variants the wrong way:** each variant was a fresh CLI run, so each
+paid ~6 minutes to rebuild and quantise 57 GB of pipeline. Four variants spent ~25
+minutes (~$0.26) on loading alone. Measure variants by mutating config inside one
+process instead.
+
 
 Also worth measuring: dropping the plate from *stop* tasks, since `start.jpg` already
 carries the set. That removes one input from the more expensive half of every pair.
